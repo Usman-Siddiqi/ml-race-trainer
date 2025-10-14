@@ -58,9 +58,9 @@ class RaceCarEnv(gym.Env):
         
         # Track properties
         self.track_points = self._generate_track()
-        # Start position on the right side of the track, facing forward (0 degrees)
+        # Start position on the right side of the track, facing down (90 degrees)
         self.start_position = (650, 300)  # Right side of the track
-        self.start_angle = 0  # Facing right (forward)
+        self.start_angle = 90  # Facing down (forward)
         
         # Current state
         self.car_x = self.start_position[0]
@@ -294,8 +294,12 @@ class RaceCarEnv(gym.Env):
         """
         reward = 0
         
-        # Speed reward (encourage forward movement)
-        reward += self.car_speed * 0.1
+        # Speed reward (encourage forward movement) - increased
+        reward += self.car_speed * 0.5
+        
+        # Movement reward (encourage any movement, not just speed)
+        if self.car_speed > 0.1:
+            reward += 0.5  # Bonus for moving
         
         # Checkpoint reward
         checkpoint_reward = self._check_checkpoints()
@@ -308,6 +312,10 @@ class RaceCarEnv(gym.Env):
         # Penalty for crashing
         if self.crashed:
             reward -= 100
+        
+        # Penalty for standing still (encourage movement)
+        if self.car_speed < 0.1:
+            reward -= 0.2
         
         # Small penalty for time (encourage efficiency)
         reward -= 0.1
