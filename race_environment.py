@@ -58,8 +58,9 @@ class RaceCarEnv(gym.Env):
         
         # Track properties
         self.track_points = self._generate_track()
-        self.start_position = (100, 300)
-        self.start_angle = 0
+        # Start position on the right side of the track, facing forward (0 degrees)
+        self.start_position = (650, 300)  # Right side of the track
+        self.start_angle = 0  # Facing right (forward)
         
         # Current state
         self.car_x = self.start_position[0]
@@ -453,10 +454,11 @@ class RaceCarEnv(gym.Env):
         if len(self.track_points['inner']) > 2:
             pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['inner'], 3)
         
-        # Draw checkpoints
-        for i, (cp_x, cp_y) in enumerate(self.checkpoints):
-            color = (0, 255, 0) if self.checkpoint_rewards[i] else (255, 255, 0)
-            pygame.draw.circle(self.screen, color, (int(cp_x), int(cp_y)), 15, 2)
+        # Note: Checkpoints are removed from rendering but still used internally for rewards
+        # Uncomment the lines below if you want to see checkpoints for debugging:
+        # for i, (cp_x, cp_y) in enumerate(self.checkpoints):
+        #     color = (0, 255, 0) if self.checkpoint_rewards[i] else (255, 255, 0)
+        #     pygame.draw.circle(self.screen, color, (int(cp_x), int(cp_y)), 15, 2)
         
         # Draw car
         car_corners = self._get_car_corners()
