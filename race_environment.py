@@ -72,12 +72,17 @@ class RaceCarEnv(gym.Env):
         self.episode_steps = 0
         self.max_episode_steps = 2000
         self.crashed = False
-        self.checkpoints_passed = 0
         self.total_checkpoints = 10
+        
+        # Fixed checkpoint tracking variables
+        self.current_checkpoint = 0  # Which checkpoint to hit next (0-9)
+        self.checkpoints_passed_this_lap = 0  # How many checkpoints passed in current lap
+        self.total_checkpoints_passed = 0  # Total checkpoints ever passed
+        self.laps_completed = 0  # Number of complete laps
+        self.last_distance_to_checkpoint = float('inf')  # For progress tracking
         
         # Generate checkpoints along the track
         self.checkpoints = self._generate_checkpoints()
-        self.checkpoint_rewards = [False] * len(self.checkpoints)
         
         # Action space: [acceleration, steering]
         # acceleration: -1 (brake) to 1 (accelerate)
@@ -137,21 +142,42 @@ class RaceCarEnv(gym.Env):
     
     def _generate_checkpoints(self) -> List[Tuple[float, float]]:
         """
-        Generate checkpoint positions along the track.
+        Generate checkpoint positions along the optimal racing line.
         
         Returns:
-            List of checkpoint positions
+            List of checkpoint positions optimized for racing
         """
-        checkpoints = []
         center_x, center_y = self.track_width // 2, self.track_height // 2
-        checkpoint_radius = 275  # Between inner and outer boundaries
-        
-        for i in range(self.total_checkpoints):
-            angle = (i / self.total_checkpoints) * 2 * math.pi
-            x = center_x + checkpoint_radius * math.cos(angle)
-            y = center_y + checkpoint_radius * math.sin(angle)
+
+        # Use the ellipse parameters defined in _generate_track to compute a
+        # smooth racing line that covers the whole track and follows the
+        # clockwise direction (same as car movement when starting on the
+        # right side facing down). This produces evenly spaced checkpoints
+        # along an intermediate ellipse between inner and outer boundaries.
+        outer_a, outer_b = 350, 250
+        inner_a, inner_b = 200, 150
+
+        # Racing line radii (midline between inner and outer). You can bias
+        # toward the inner or outer side by changing the blend factor.
+        blend = 0.55  # >0.5 biases toward outer boundary through turns
+        a_r = inner_a * (1 - blend) + outer_a * blend
+        b_r = inner_b * (1 - blend) + outer_b * blend
+
+        # Determine start angle from the start position so the first
+        # checkpoint is near where the car begins. Use atan2(y, x).
+        sx, sy = self.start_position
+        start_theta = math.atan2(sy - center_y, sx - center_x)
+
+        checkpoints: List[Tuple[float, float]] = []
+        n = int(self.total_checkpoints) if hasattr(self, 'total_checkpoints') else 10
+
+        # Generate checkpoints in clockwise order by subtracting angle steps
+        for i in range(n):
+            theta = start_theta - (2 * math.pi * i) / n
+            x = center_x + a_r * math.cos(theta)
+            y = center_y + b_r * math.sin(theta)
             checkpoints.append((x, y))
-        
+
         return checkpoints
     
     def _get_sensor_distances(self) -> List[float]:
@@ -268,20 +294,48 @@ class RaceCarEnv(gym.Env):
     
     def _check_checkpoints(self) -> float:
         """
-        Check if car has passed any new checkpoints and return reward.
+        Check if car has passed the NEXT checkpoint in sequence and return reward.
         
         Returns:
             Checkpoint reward
         """
+        if self.current_checkpoint >= len(self.checkpoints):
+            return 0  # Safety check
+        
+        # Get the NEXT checkpoint that needs to be hit
+        cp_x, cp_y = self.checkpoints[self.current_checkpoint]
+        distance = math.sqrt((self.car_x - cp_x) ** 2 + (self.car_y - cp_y) ** 2)
+        
         reward = 0
         
-        for i, (cp_x, cp_y) in enumerate(self.checkpoints):
-            if not self.checkpoint_rewards[i]:
-                distance = math.sqrt((self.car_x - cp_x) ** 2 + (self.car_y - cp_y) ** 2)
-                if distance < 30:  # Checkpoint radius
-                    self.checkpoint_rewards[i] = True
-                    self.checkpoints_passed += 1
-                    reward += 100  # Checkpoint reward
+        # Check if close enough to the NEXT checkpoint
+        if distance < 35:  # Checkpoint hit radius
+            # Checkpoint passed!
+            reward = 500  # Large reward for hitting checkpoint in correct order
+            
+            print(f"✅ Checkpoint {self.current_checkpoint} passed! "
+                  f"Distance: {distance:.1f}")
+            
+            # Move to next checkpoint
+            self.current_checkpoint = (self.current_checkpoint + 1) % self.total_checkpoints
+            self.checkpoints_passed_this_lap += 1
+            self.total_checkpoints_passed += 1
+            
+            # Check if completed a lap
+            if self.checkpoints_passed_this_lap >= self.total_checkpoints:
+                self.laps_completed += 1
+                self.checkpoints_passed_this_lap = 0  # Reset for next lap
+                lap_reward = 2000  # Massive bonus for completing lap
+                reward += lap_reward
+                print(f"🏁 LAP {self.laps_completed} COMPLETED! Bonus: +{lap_reward}")
+        
+        # Small reward for getting closer to the next checkpoint
+        if distance < self.last_distance_to_checkpoint:
+            reward += 2  # Small progress reward
+        elif distance > self.last_distance_to_checkpoint:
+            reward -= 1  # Small penalty for moving away
+        
+        self.last_distance_to_checkpoint = distance
         
         return reward
     
@@ -301,7 +355,7 @@ class RaceCarEnv(gym.Env):
         if self.car_speed > 0.1:
             reward += 0.5  # Bonus for moving
         
-        # Checkpoint reward
+        # Checkpoint reward (sequential checkpoints only)
         checkpoint_reward = self._check_checkpoints()
         reward += checkpoint_reward
         
@@ -340,9 +394,49 @@ class RaceCarEnv(gym.Env):
         # Reset episode tracking
         self.episode_steps = 0
         self.crashed = False
-        self.checkpoints_passed = 0
-        self.checkpoint_rewards = [False] * len(self.checkpoints)
         
+        # Reset checkpoint tracking. Instead of always using index 0, pick
+        # the checkpoint that the car is actually facing / approaching so
+        # checkpoint counting matches the car's clockwise movement.
+        self.current_checkpoint = 0
+        self.checkpoints_passed_this_lap = 0
+        self.total_checkpoints_passed = 0
+        self.laps_completed = 0
+
+        # Calculate initial distance to the chosen starting checkpoint.
+        if self.checkpoints:
+            # Determine car heading unit vector
+            heading_rad = math.radians(self.car_angle)
+            heading_vec = (math.cos(heading_rad), math.sin(heading_rad))
+
+            # Find the checkpoint that is nearest and roughly in front of the car
+            best_idx = None
+            best_dist = float('inf')
+
+            for i, (cp_x, cp_y) in enumerate(self.checkpoints):
+                vx = cp_x - self.car_x
+                vy = cp_y - self.car_y
+                dist = math.hypot(vx, vy)
+
+                # Project vector to checkpoint onto heading to see if it's ahead
+                forward_proj = vx * heading_vec[0] + vy * heading_vec[1]
+
+                # Prefer checkpoints that are ahead (positive projection). Use a
+                # small tolerance to allow near-side checkpoints.
+                ahead_bonus = 0 if forward_proj > 5 else 10000
+
+                score = dist + ahead_bonus
+                if score < best_dist:
+                    best_dist = score
+                    best_idx = i
+
+            if best_idx is None:
+                best_idx = 0
+
+            self.current_checkpoint = best_idx
+            cp_x, cp_y = self.checkpoints[self.current_checkpoint]
+            self.last_distance_to_checkpoint = math.sqrt((self.car_x - cp_x) ** 2 + (self.car_y - cp_y) ** 2)
+
         observation = self._get_observation()
         info = {}
         
@@ -393,14 +487,18 @@ class RaceCarEnv(gym.Env):
         terminated = self.crashed
         truncated = self.episode_steps >= self.max_episode_steps
         
-        # Check if completed track (all checkpoints)
-        if self.checkpoints_passed >= self.total_checkpoints:
+        # Bonus termination condition: multiple laps completed
+        if self.laps_completed >= 3:  # Allow up to 3 laps
             terminated = True
-            reward += 500  # Completion bonus
+            reward += 5000  # Huge bonus for multiple laps
+            print(f"🎉 AMAZING! {self.laps_completed} laps completed!")
         
         observation = self._get_observation()
         info = {
-            'checkpoints_passed': self.checkpoints_passed,
+            'checkpoints_passed': self.total_checkpoints_passed,
+            'checkpoints_this_lap': self.checkpoints_passed_this_lap,
+            'current_checkpoint': self.current_checkpoint,
+            'laps_completed': self.laps_completed,
             'crashed': self.crashed,
             'speed': self.car_speed
         }
@@ -425,8 +523,8 @@ class RaceCarEnv(gym.Env):
         angle_sin = math.sin(math.radians(self.car_angle))
         angle_cos = math.cos(math.radians(self.car_angle))
         
-        # Checkpoint progress
-        checkpoint_progress = self.checkpoints_passed / self.total_checkpoints
+        # Checkpoint progress (current lap progress)
+        checkpoint_progress = self.checkpoints_passed_this_lap / self.total_checkpoints
         
         observation = np.array([
             normalized_distances[0],  # Left sensor
@@ -435,7 +533,7 @@ class RaceCarEnv(gym.Env):
             normalized_speed,         # Current speed
             angle_sin,               # Angle sine
             angle_cos,               # Angle cosine
-            checkpoint_progress      # Progress through track
+            checkpoint_progress      # Progress through current lap
         ], dtype=np.float32)
         
         return observation
@@ -462,11 +560,26 @@ class RaceCarEnv(gym.Env):
         if len(self.track_points['inner']) > 2:
             pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['inner'], 3)
         
-        # Note: Checkpoints are removed from rendering but still used internally for rewards
-        # Uncomment the lines below if you want to see checkpoints for debugging:
-        # for i, (cp_x, cp_y) in enumerate(self.checkpoints):
-        #     color = (0, 255, 0) if self.checkpoint_rewards[i] else (255, 255, 0)
-        #     pygame.draw.circle(self.screen, color, (int(cp_x), int(cp_y)), 15, 2)
+        # Draw checkpoints with proper highlighting
+        for i, (cp_x, cp_y) in enumerate(self.checkpoints):
+            if i == self.current_checkpoint:
+                # Next checkpoint - bright green and larger
+                color = (0, 255, 0)
+                radius = 25
+                width = 4
+            else:
+                # Other checkpoints - dim white
+                color = (150, 150, 150)
+                radius = 15
+                width = 2
+            
+            pygame.draw.circle(self.screen, color, (int(cp_x), int(cp_y)), radius, width)
+            
+            # Draw checkpoint number
+            font = pygame.font.Font(None, 24)
+            text = font.render(str(i), True, (255, 255, 255))
+            text_rect = text.get_rect(center=(cp_x, cp_y))
+            self.screen.blit(text, text_rect)
         
         # Draw car
         car_corners = self._get_car_corners()
@@ -483,13 +596,20 @@ class RaceCarEnv(gym.Env):
             color = (255, 100, 100) if sensor_distances[i] < 20 else (100, 255, 100)
             pygame.draw.line(self.screen, color, (self.car_x, self.car_y), (end_x, end_y), 2)
         
-        # Draw info
-        font = pygame.font.Font(None, 36)
-        speed_text = font.render(f"Speed: {self.car_speed:.1f}", True, (255, 255, 255))
-        checkpoint_text = font.render(f"Checkpoints: {self.checkpoints_passed}/{self.total_checkpoints}", True, (255, 255, 255))
+        # Draw enhanced info
+        font = pygame.font.Font(None, 32)
+        info_lines = [
+            f"Speed: {self.car_speed:.1f}",
+            f"Laps: {self.laps_completed}",
+            f"This Lap: {self.checkpoints_passed_this_lap}/10",
+            f"Next CP: {self.current_checkpoint}",
+            f"Total CPs: {self.total_checkpoints_passed}",
+            f"Steps: {self.episode_steps}"
+        ]
         
-        self.screen.blit(speed_text, (10, 10))
-        self.screen.blit(checkpoint_text, (10, 50))
+        for i, line in enumerate(info_lines):
+            text = font.render(line, True, (255, 255, 255))
+            self.screen.blit(text, (10, 10 + i * 35))
         
         if self.render_mode == 'human':
             pygame.display.flip()
@@ -540,7 +660,9 @@ if __name__ == "__main__":
         env.render()
         
         if terminated or truncated:
-            print(f"Episode ended. Checkpoints: {info['checkpoints_passed']}, Crashed: {info['crashed']}")
+            print(f"Episode ended. Laps: {info['laps_completed']}, "
+                  f"Total checkpoints: {info['checkpoints_passed']}, "
+                  f"Crashed: {info['crashed']}")
             obs, info = env.reset()
     
     env.close()
