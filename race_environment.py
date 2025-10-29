@@ -88,16 +88,16 @@ class RaceCarEnv(gym.Env):
         # acceleration: -1 (brake) to 1 (accelerate)
         # steering: -1 (left) to 1 (right)
         self.action_space = spaces.Box(
-            low=np.array([-1.0, -1.0]),
-            high=np.array([1.0, 1.0]),
+            low=np.array([-1.0, -1.0], dtype=np.float32),
+            high=np.array([1.0, 1.0], dtype=np.float32),
             dtype=np.float32
         )
         
         # Observation space: [sensor_distances (3), speed, angle_sin, angle_cos, checkpoint_progress]
         self.observation_space = spaces.Box(
-            low=np.array([0, 0, 0, 0, -1, -1, 0]),
-            high=np.array([self.sensor_length, self.sensor_length, self.sensor_length, 
-                          self.max_speed, 1, 1, 1]),
+            low=np.array([0, 0, 0, 0, -1, -1, 0], dtype=np.float32),
+            high=np.array([self.sensor_length, self.sensor_length, self.sensor_length,
+                           self.max_speed, 1, 1, 1], dtype=np.float32),
             dtype=np.float32
         )
         
@@ -192,19 +192,20 @@ class RaceCarEnv(gym.Env):
         for sensor_angle in self.sensor_angles:
             # Calculate sensor direction
             total_angle = math.radians(self.car_angle + sensor_angle)
+            cos_a = math.cos(total_angle)
+            sin_a = math.sin(total_angle)
             
             # Cast ray from car position
-            min_distance = self.sensor_length
-            
+            sensor_distance = self.sensor_length
             for distance in range(1, self.sensor_length):
-                x = self.car_x + distance * math.cos(total_angle)
-                y = self.car_y + distance * math.sin(total_angle)
+                x = self.car_x + distance * cos_a
+                y = self.car_y + distance * sin_a
                 
                 if self._point_in_wall(x, y):
-                    min_distance = distance
+                    sensor_distance = distance
                     break
             
-            distances.append(min_distance)
+            distances.append(sensor_distance)
         
         return distances
     
@@ -288,7 +289,7 @@ class RaceCarEnv(gym.Env):
             # Translate
             rx += self.car_x
             ry += self.car_y
-            rotated_corners.append((rx, ry))
+            rotated_corners.append((float(rx), float(ry)))
         
         return rotated_corners
     
@@ -594,7 +595,9 @@ class RaceCarEnv(gym.Env):
             end_y = self.car_y + sensor_distances[i] * math.sin(total_angle)
             
             color = (255, 100, 100) if sensor_distances[i] < 20 else (100, 255, 100)
-            pygame.draw.line(self.screen, color, (self.car_x, self.car_y), (end_x, end_y), 2)
+            start_pos = (float(self.car_x), float(self.car_y))
+            end_pos = (float(end_x), float(end_y))
+            pygame.draw.line(self.screen, color, start_pos, end_pos, 2)
         
         # Draw enhanced info
         font = pygame.font.Font(None, 32)
