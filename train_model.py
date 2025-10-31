@@ -156,7 +156,7 @@ def action_to_continuous(action_idx):
     return np.array(actions[action_idx], dtype=np.float32)
 
 
-def train_dqn(episodes=1000, save_interval=100, render_mode=None, render_interval=50):
+def train_dqn(episodes=1000, save_interval=100, render_mode=None, render_interval=50, track_type='oval'):
     """
     Train the DQN model.
     
@@ -165,9 +165,10 @@ def train_dqn(episodes=1000, save_interval=100, render_mode=None, render_interva
         save_interval: Save model every N episodes
         render_mode: 'human' to watch training, None for faster training
         render_interval: Render every N episodes (only if render_mode='human')
+        track_type: Type of track to use ('oval' or 's_track')
     """
     # Create environment
-    env = RaceCarEnv(render_mode=render_mode)
+    env = RaceCarEnv(render_mode=render_mode, track_type=track_type)
     
     # Create agent
     agent = DQNAgent()
@@ -271,20 +272,21 @@ def train_dqn(episodes=1000, save_interval=100, render_mode=None, render_interva
     return agent
 
 
-def test_model(model_path='best_race_model.pth', episodes=5):
+def test_model(model_path='best_race_model.pth', episodes=5, track_type='oval'):
     """
     Test a trained model.
     
     Args:
         model_path: Path to the saved model
         episodes: Number of test episodes
+        track_type: Type of track to use ('oval' or 's_track')
     """
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
         return
     
     # Create environment with rendering
-    env = RaceCarEnv(render_mode='human')
+    env = RaceCarEnv(render_mode='human', track_type=track_type)
     
     # Create agent and load model
     agent = DQNAgent()
@@ -340,11 +342,13 @@ if __name__ == "__main__":
                        help='Enable visual training (slower but you can watch)')
     parser.add_argument('--render-interval', type=int, default=50,
                        help='Render every N episodes (only with --visual)')
+    parser.add_argument('--track', type=str, default='s_track',
+                        help='Track to use for training or testing')
     
     args = parser.parse_args()
     
     if args.mode == 'train':
         render_mode = 'human' if args.visual else None
-        train_dqn(episodes=args.episodes, render_mode=render_mode, render_interval=args.render_interval)
+        train_dqn(episodes=args.episodes, render_mode=render_mode, render_interval=args.render_interval, track_type=args.track)
     else:
-        test_model(model_path=args.model)
+        test_model(model_path=args.model, track_type=args.track)
