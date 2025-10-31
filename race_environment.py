@@ -178,7 +178,7 @@ class RaceCarEnv(gym.Env):
             y = center_y + b_r * math.sin(theta)
             checkpoints.append((x, y))
 
-        return checkpoints
+        return checkpoints[::-1]
     
     def _get_sensor_distances(self) -> List[float]:
         """
@@ -310,7 +310,7 @@ class RaceCarEnv(gym.Env):
         reward = 0
         
         # Check if close enough to the NEXT checkpoint
-        if distance < 35:  # Checkpoint hit radius
+        if distance < 45:  # Checkpoint hit radius
             # Checkpoint passed!
             reward = 500  # Large reward for hitting checkpoint in correct order
             
@@ -364,13 +364,17 @@ class RaceCarEnv(gym.Env):
         if not self.crashed:
             reward += 1
         
+        # Reward for high speed
+        if self.car_speed > 5:
+            reward += self.car_speed * 0.2
+
         # Penalty for crashing
         if self.crashed:
-            reward -= 100
+            reward -= 500
         
         # Penalty for standing still (encourage movement)
         if self.car_speed < 0.1:
-            reward -= 0.2
+            reward -= 0.5
         
         # Small penalty for time (encourage efficiency)
         reward -= 0.1
