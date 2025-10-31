@@ -1,0 +1,12 @@
+# Pygame and Python
+__pycache__/
+*.pyc
+
+# Models
+*.pth
+
+# Logs
+*.log
+
+# Images
+*.png

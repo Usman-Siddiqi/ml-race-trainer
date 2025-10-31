@@ -27,7 +27,7 @@ class RaceCarEnv(gym.Env):
     
     metadata = {'render.modes': ['human', 'rgb_array']}
     
-    def __init__(self, render_mode: Optional[str] = None, track_width: int = 800, track_height: int = 600):
+    def __init__(self, render_mode: Optional[str] = None, track_width: int = 800, track_height: int = 600, track_type: str = 'oval'):
         """
         Initialize the racing environment.
         
@@ -35,12 +35,14 @@ class RaceCarEnv(gym.Env):
             render_mode: Rendering mode ('human' or 'rgb_array')
             track_width: Width of the track window
             track_height: Height of the track window
+            track_type: Type of track to generate ('oval' or 's_track')
         """
         super().__init__()
         
         self.render_mode = render_mode
         self.track_width = track_width
         self.track_height = track_height
+        self.track_type = track_type
         
         # Car properties
         self.car_width = 20
@@ -53,14 +55,18 @@ class RaceCarEnv(gym.Env):
         self.turn_speed = 3
         
         # Sensor properties
-        self.sensor_length = 100
-        self.sensor_angles = [-30, 0, 30]  # Left, center, right sensors
+        self.sensor_length = 200
+        self.sensor_angles = [-45, 0, 45]  # Widened sensor angles for better peripheral vision
         
         # Track properties
-        self.track_points = self._generate_track()
-        # Start position on the right side of the track, facing down (90 degrees)
-        self.start_position = (650, 300)  # Right side of the track
-        self.start_angle = 90  # Facing down (forward)
+        if self.track_type == 's_track':
+            self.track_points = self._generate_s_track()
+            self.start_position = (100, 100)
+            self.start_angle = 0
+        else:
+            self.track_points = self._generate_track()
+            self.start_position = (650, 300)
+            self.start_angle = 90
         
         # Current state
         self.car_x = self.start_position[0]
@@ -139,54 +145,82 @@ class RaceCarEnv(gym.Env):
             inner_points.append((x, y))
         
         return {'outer': outer_points, 'inner': inner_points}
+
+    def _generate_s_track(self) -> dict:
+        """
+        Generate a more complex S-shaped track.
+        """
+        points = []
+        # Define the centerline of the S-track
+        centerline = [
+            (100, 100), (200, 100), (300, 200), (400, 300), (500, 400),
+            (600, 500), (700, 500)
+        ]
+
+        # Generate outer and inner boundaries from the centerline
+        outer_points = []
+        inner_points = []
+        track_width = 80
+
+        for i in range(len(centerline) - 1):
+            p1 = centerline[i]
+            p2 = centerline[i+1]
+
+            angle = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
+
+            # Perpendicular angle
+            perp_angle = angle + math.pi / 2
+
+            # Outer points
+            outer_points.append((p1[0] + track_width * math.cos(perp_angle), p1[1] + track_width * math.sin(perp_angle)))
+            outer_points.append((p2[0] + track_width * math.cos(perp_angle), p2[1] + track_width * math.sin(perp_angle)))
+
+            # Inner points
+            inner_points.append((p1[0] - track_width * math.cos(perp_angle), p1[1] - track_width * math.sin(perp_angle)))
+            inner_points.append((p2[0] - track_width * math.cos(perp_angle), p2[1] - track_width * math.sin(perp_angle)))
+
+        return {'outer': outer_points, 'inner': inner_points}
     
     def _generate_checkpoints(self) -> List[Tuple[float, float]]:
         """
         Generate checkpoint positions along the optimal racing line.
-        
-        Returns:
-            List of checkpoint positions optimized for racing
         """
-        center_x, center_y = self.track_width // 2, self.track_height // 2
+        if self.track_type == 's_track':
+            return self._generate_s_checkpoints()
 
-        # Use the ellipse parameters defined in _generate_track to compute a
-        # smooth racing line that covers the whole track and follows the
-        # clockwise direction (same as car movement when starting on the
-        # right side facing down). This produces evenly spaced checkpoints
-        # along an intermediate ellipse between inner and outer boundaries.
+        center_x, center_y = self.track_width // 2, self.track_height // 2
         outer_a, outer_b = 350, 250
         inner_a, inner_b = 200, 150
-
-        # Racing line radii (midline between inner and outer). You can bias
-        # toward the inner or outer side by changing the blend factor.
-        blend = 0.55  # >0.5 biases toward outer boundary through turns
+        blend = 0.55
         a_r = inner_a * (1 - blend) + outer_a * blend
         b_r = inner_b * (1 - blend) + outer_b * blend
-
-        # Determine start angle from the start position so the first
-        # checkpoint is near where the car begins. Use atan2(y, x).
         sx, sy = self.start_position
         start_theta = math.atan2(sy - center_y, sx - center_x)
-
         checkpoints: List[Tuple[float, float]] = []
         n = int(self.total_checkpoints) if hasattr(self, 'total_checkpoints') else 10
-
-        # Generate checkpoints in clockwise order by subtracting angle steps
         for i in range(n):
             theta = start_theta - (2 * math.pi * i) / n
             x = center_x + a_r * math.cos(theta)
             y = center_y + b_r * math.sin(theta)
             checkpoints.append((x, y))
-
         return checkpoints[::-1]
+
+    def _generate_s_checkpoints(self) -> List[Tuple[float, float]]:
+        """
+        Generate checkpoints for the S-track.
+        """
+        return [
+            (150, 100), (250, 150), (350, 250), (450, 350),
+            (550, 450), (650, 500)
+        ]
     
     def _get_sensor_distances(self) -> List[float]:
         """
-        Calculate distances from car sensors to track walls using ray-ellipse intersection.
-        
-        Returns:
-            List of sensor distances [left, center, right]
+        Calculate distances from car sensors to track walls.
         """
+        if self.track_type == 's_track':
+            return self._get_s_sensor_distances()
+
         center_x, center_y = self.track_width // 2, self.track_height // 2
         outer_a, outer_b = 350, 250  # Outer ellipse radii
         inner_a, inner_b = 200, 150  # Inner ellipse radii
@@ -196,7 +230,7 @@ class RaceCarEnv(gym.Env):
         for sensor_angle in self.sensor_angles:
             total_angle = math.radians(self.car_angle + sensor_angle)
             dx, dy = math.cos(total_angle), math.sin(total_angle)
-            
+
             # Ray origin (car position) relative to center
             ox, oy = self.car_x - center_x, self.car_y - center_y
 
@@ -235,7 +269,30 @@ class RaceCarEnv(gym.Env):
             
         return distances
 
+    def _get_s_sensor_distances(self) -> List[float]:
+        """
+        Calculate sensor distances for the S-track.
+        """
+        distances = []
+        for sensor_angle in self.sensor_angles:
+            total_angle = math.radians(self.car_angle + sensor_angle)
+            cos_a = math.cos(total_angle)
+            sin_a = math.sin(total_angle)
+
+            sensor_distance = self.sensor_length
+            for distance in range(1, self.sensor_length):
+                x = self.car_x + distance * cos_a
+                y = self.car_y + distance * sin_a
+
+                if self._point_in_s_wall(x, y):
+                    sensor_distance = distance
+                    break
+            distances.append(sensor_distance)
+        return distances
+
     def _point_in_wall(self, x: float, y: float) -> bool:
+        if self.track_type == 's_track':
+            return self._point_in_s_wall(x, y)
         """
         Check if a point is inside a wall (outside track boundaries).
         
@@ -262,7 +319,53 @@ class RaceCarEnv(gym.Env):
             return True
 
         return False
-    
+
+    def _point_in_s_wall(self, x: float, y: float) -> bool:
+        """
+        Check if a point is inside a wall for the S-track.
+        """
+        if not (0 <= x < self.track_width and 0 <= y < self.track_height):
+            return True
+
+        # Check if the point is outside the wide path defined by the centerline
+        centerline = [
+            (100, 100), (200, 100), (300, 200), (400, 300), (500, 400),
+            (600, 500), (700, 500)
+        ]
+        track_width = 80
+
+        min_dist = float('inf')
+        for i in range(len(centerline) - 1):
+            p1 = np.array(centerline[i])
+            p2 = np.array(centerline[i+1])
+            p = np.array([x, y])
+
+            # Vector from p1 to p2
+            line_vec = p2 - p1
+            # Vector from p1 to the point p
+            point_vec = p - p1
+
+            # Project point_vec onto line_vec
+            line_len = np.linalg.norm(line_vec)
+            if line_len == 0:
+                dist = np.linalg.norm(point_vec)
+            else:
+                line_unitvec = line_vec / line_len
+                t = np.dot(point_vec, line_unitvec)
+
+                if t < 0.0:
+                    dist = np.linalg.norm(p - p1)
+                elif t > line_len:
+                    dist = np.linalg.norm(p - p2)
+                else:
+                    nearest = p1 + t * line_unitvec
+                    dist = np.linalg.norm(p - nearest)
+
+            if dist < min_dist:
+                min_dist = dist
+
+        return min_dist > track_width
+
     def _check_collision(self) -> bool:
         """
         Check if the car has collided with track walls.
@@ -581,10 +684,14 @@ class RaceCarEnv(gym.Env):
         self.screen.fill((50, 50, 50))  # Dark gray background
         
         # Draw track boundaries
-        if len(self.track_points['outer']) > 2:
-            pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['outer'], 3)
-        if len(self.track_points['inner']) > 2:
-            pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['inner'], 3)
+        if self.track_type == 's_track':
+            pygame.draw.lines(self.screen, (100, 100, 100), False, self.track_points['outer'], 3)
+            pygame.draw.lines(self.screen, (100, 100, 100), False, self.track_points['inner'], 3)
+        else:
+            if len(self.track_points['outer']) > 2:
+                pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['outer'], 3)
+            if len(self.track_points['inner']) > 2:
+                pygame.draw.polygon(self.screen, (100, 100, 100), self.track_points['inner'], 3)
         
         # Draw checkpoints with proper highlighting
         for i, (cp_x, cp_y) in enumerate(self.checkpoints):
