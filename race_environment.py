@@ -182,33 +182,59 @@ class RaceCarEnv(gym.Env):
     
     def _get_sensor_distances(self) -> List[float]:
         """
-        Calculate distances from car sensors to track walls.
+        Calculate distances from car sensors to track walls using ray-ellipse intersection.
         
         Returns:
             List of sensor distances [left, center, right]
         """
+        center_x, center_y = self.track_width // 2, self.track_height // 2
+        outer_a, outer_b = 350, 250  # Outer ellipse radii
+        inner_a, inner_b = 200, 150  # Inner ellipse radii
+
         distances = []
         
         for sensor_angle in self.sensor_angles:
-            # Calculate sensor direction
             total_angle = math.radians(self.car_angle + sensor_angle)
-            cos_a = math.cos(total_angle)
-            sin_a = math.sin(total_angle)
+            dx, dy = math.cos(total_angle), math.sin(total_angle)
             
-            # Cast ray from car position
-            sensor_distance = self.sensor_length
-            for distance in range(1, self.sensor_length):
-                x = self.car_x + distance * cos_a
-                y = self.car_y + distance * sin_a
-                
-                if self._point_in_wall(x, y):
-                    sensor_distance = distance
-                    break
+            # Ray origin (car position) relative to center
+            ox, oy = self.car_x - center_x, self.car_y - center_y
+
+            # --- Intersection with outer ellipse ---
+            a, b = outer_a, outer_b
+            A = (dx / a)**2 + (dy / b)**2
+            B = 2 * ((ox * dx / a**2) + (oy * dy / b**2))
+            C = (ox / a)**2 + (oy / b)**2 - 1
+
+            discriminant = B**2 - 4 * A * C
+            d_outer = self.sensor_length
+            if discriminant >= 0:
+                t1 = (-B - math.sqrt(discriminant)) / (2 * A)
+                t2 = (-B + math.sqrt(discriminant)) / (2 * A)
+                if t1 > 0:
+                    d_outer = t1
+                elif t2 > 0:
+                    d_outer = t2
+
+            # --- Intersection with inner ellipse ---
+            a, b = inner_a, inner_b
+            A = (dx / a)**2 + (dy / b)**2
+            B = 2 * ((ox * dx / a**2) + (oy * dy / b**2))
+            C = (ox / a)**2 + (oy / b)**2 - 1
+
+            discriminant = B**2 - 4 * A * C
+            d_inner = self.sensor_length
+            if discriminant >= 0:
+                t1 = (-B - math.sqrt(discriminant)) / (2 * A)
+                if t1 > 0:
+                    d_inner = t1
+
+            # The actual distance is the minimum of the two intersections
+            min_dist = min(d_outer, d_inner, self.sensor_length)
+            distances.append(min_dist)
             
-            distances.append(sensor_distance)
-        
         return distances
-    
+
     def _point_in_wall(self, x: float, y: float) -> bool:
         """
         Check if a point is inside a wall (outside track boundaries).
@@ -220,26 +246,21 @@ class RaceCarEnv(gym.Env):
             True if point is in a wall
         """
         # Check if outside window bounds
-        if x < 0 or x >= self.track_width or y < 0 or y >= self.track_height:
+        if not (0 <= x < self.track_width and 0 <= y < self.track_height):
             return True
-        
+
         # Check if outside outer boundary or inside inner boundary
         center_x, center_y = self.track_width // 2, self.track_height // 2
-        
-        # Distance from center
-        dx = x - center_x
-        dy = y - center_y
-        
+        dx, dy = x - center_x, y - center_y
+
         # Check outer boundary (ellipse)
-        outer_dist = (dx / 350) ** 2 + (dy / 250) ** 2
-        if outer_dist > 1:
+        if (dx / 350)**2 + (dy / 250)**2 > 1:
             return True
-        
+
         # Check inner boundary (ellipse)
-        inner_dist = (dx / 200) ** 2 + (dy / 150) ** 2
-        if inner_dist < 1:
+        if (dx / 200)**2 + (dy / 150)**2 < 1:
             return True
-        
+
         return False
     
     def _check_collision(self) -> bool:
