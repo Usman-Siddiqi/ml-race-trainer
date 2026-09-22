@@ -85,7 +85,7 @@ def load_policy(path, device="cpu"):
         def act(self, observation, *, explore=False):
             if explore:
                 raise ValueError("A saved policy is for inference; use resume for training")
-            tensor = torch.as_tensor(observation, device=device).unsqueeze(0)
+            tensor = torch.as_tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
             return int(network(tensor).argmax(dim=1).item())
 
     return Policy(), payload

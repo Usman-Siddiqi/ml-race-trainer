@@ -1,15 +1,4 @@
-# ML Race Trainer Dependencies
-# Install with: pip install -r requirements.txt
-
-# Core dependencies
-pygame>=2.1.0
-numpy>=1.21.0
-gymnasium>=0.28.0
-
-# Machine Learning
-torch>=1.12.0
-matplotlib>=3.5.0
-
-# Optional: For better performance
-# torch-audio  # Uncomment if you want audio support
-# torch-vision  # Uncomment if you want vision support
+# CPU fallback for pip users. Prefer uv sync --extra cpu for the full lockfile.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0+cpu
+-e .

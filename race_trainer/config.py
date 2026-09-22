@@ -1,5 +1,6 @@
 """Serializable contracts shared by simulation, checkpoints, and every entry point."""
 
+import math
 from dataclasses import dataclass
 
 TRACK_NAMES = ("oval", "s_track", "square")
@@ -25,6 +26,18 @@ class EnvConfig:
     sensor_range: float = 220.0
 
     def __post_init__(self):
+        for key in (
+            "dt",
+            "max_speed",
+            "acceleration",
+            "braking",
+            "drag",
+            "wheelbase",
+            "max_steering",
+            "sensor_range",
+        ):
+            if not math.isfinite(getattr(self, key)):
+                raise ValueError(f"{key} must be finite")
         if self.track not in TRACK_NAMES:
             raise ValueError(f"Unknown track {self.track!r}; choose from {TRACK_NAMES}")
         if self.laps < 1 or self.max_steps < 1 or self.stall_steps < 1:
@@ -56,6 +69,9 @@ class AgentConfig:
     gradient_clip: float = 10.0
 
     def __post_init__(self):
+        for key in ("learning_rate", "gamma", "epsilon_start", "epsilon_end", "gradient_clip"):
+            if not math.isfinite(getattr(self, key)):
+                raise ValueError(f"{key} must be finite")
         for key in (
             "hidden_size",
             "batch_size",
@@ -83,10 +99,11 @@ class TrainConfig:
     eval_every: int = 25
     eval_episodes: int = 5
     save_every: int = 100
-    device: str = "auto"
+    device: str = "cpu"
     cpu_threads: int = 2
 
     def __post_init__(self):
+        object.__setattr__(self, "tracks", tuple(dict.fromkeys(self.tracks)))
         if not self.tracks or any(t not in TRACK_NAMES for t in self.tracks):
             raise ValueError(f"Choose at least one track from {TRACK_NAMES}")
         for key in ("episodes", "eval_every", "eval_episodes", "save_every", "cpu_threads"):

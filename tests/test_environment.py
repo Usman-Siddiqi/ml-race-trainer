@@ -102,3 +102,30 @@ def test_crash_is_terminal_and_invalid_actions_are_rejected():
 def test_sprint_rejects_multiple_laps():
     with pytest.raises(ValueError, match="sprint"):
         EnvConfig(track="s_track", laps=2)
+
+
+@pytest.mark.parametrize("name", TRACK_NAMES)
+def test_tracks_are_drivable_with_a_fixed_geometry_controller(name):
+    """Physical lap validation using fixed arithmetic, with no model or learning."""
+    env = RaceCarEnv(EnvConfig(track=name, random_start=False))
+    env.reset()
+    for _ in range(env.config.max_steps):
+        distance, _ = env.track.project(env.position)
+        target, _ = env.track.sample(distance + 45)
+        delta = target - env.position
+        alpha = math.atan2(delta[1], delta[0]) - env.angle
+        steering = math.atan2(2 * env.config.wheelbase * math.sin(alpha), np.linalg.norm(delta))
+        throttle = np.clip(
+            (90 - env.speed) * 0.1 + env.config.drag / env.config.acceleration, -1, 1
+        )
+        _, _, terminated, truncated, info = env.step([throttle, steering / env.config.max_steering])
+        if terminated or truncated:
+            break
+    assert info["completed"], info
+    assert info["progress"] == 1.0 and not info["crashed"]
+
+
+@pytest.mark.parametrize("field", ["dt", "max_speed", "drag"])
+def test_environment_rejects_nonfinite_physics(field):
+    with pytest.raises(ValueError, match="finite"):
+        EnvConfig(**{field: float("nan")})

@@ -1,0 +1,4 @@
+# NVIDIA CUDA 12.8 fallback. Prefer uv sync --extra cuda for the full lockfile.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+-e .

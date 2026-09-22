@@ -163,7 +163,9 @@ class RaceCarEnv(gym.Env):
             "total_checkpoints": self.total_checkpoints * self.config.laps,
             "current_checkpoint": self.current_checkpoint,
             "laps_completed": self.laps_completed,
-            "progress": float(np.clip(self.route_distance / route_length, 0, 1)),
+            "progress": 1.0
+            if self.completed
+            else float(np.clip(self.route_distance / route_length, 0, 1)),
             "crashed": self.crashed,
             "completed": self.completed,
             "speed": self.speed,

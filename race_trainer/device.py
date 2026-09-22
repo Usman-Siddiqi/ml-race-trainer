@@ -73,7 +73,7 @@ def diagnostics():
         "ac_power": ac_power_connected(),
         "packages": {},
     }
-    for package in ("numpy", "gymnasium", "pygame", "torch"):
+    for package in ("numpy", "gymnasium", "pygame-ce", "torch"):
         try:
             result["packages"][package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:

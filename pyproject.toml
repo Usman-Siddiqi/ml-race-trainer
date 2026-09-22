@@ -7,7 +7,7 @@ name = "ml-race-trainer"
 version = "2.0.0"
 description = "A reproducible racing simulator and Double DQN learning lab"
 requires-python = ">=3.11,<3.14"
-dependencies = ["numpy>=2.0,<3", "gymnasium>=1.1,<2", "pygame>=2.6,<3"]
+dependencies = ["numpy>=2.0,<3", "gymnasium>=1.1,<2", "pygame-ce>=2.5.8,<3"]
 
 [project.optional-dependencies]
 cpu = ["torch>=2.8,<3"]

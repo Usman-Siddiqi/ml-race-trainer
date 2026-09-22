@@ -112,7 +112,7 @@ class DQNAgent:
     def act(self, state, *, explore=False):
         if explore and self.rng.random() < self.epsilon:
             return int(self.rng.integers(len(ACTIONS)))
-        observation = torch.as_tensor(state, device=self.device).unsqueeze(0)
+        observation = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         return int(self.online(observation).argmax(dim=1).item())
 
     def observe(self, state, action, reward, next_state, terminated):
@@ -136,6 +136,10 @@ class DQNAgent:
             )
         predictions = self.online(states).gather(1, actions[:, None]).squeeze(1)
         loss = nn.functional.smooth_l1_loss(predictions, targets)
+        if not torch.isfinite(loss).item():
+            raise RuntimeError(
+                "Non-finite training loss; stopped before applying an optimizer update"
+            )
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(self.online.parameters(), cfg.gradient_clip)
