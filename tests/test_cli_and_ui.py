@@ -24,10 +24,12 @@ def test_dry_run_does_not_construct_an_agent(monkeypatch, capsys):
         raise AssertionError("A dry run must not create a neural network")
 
     monkeypatch.setattr("race_trainer.agent.DQNAgent.__init__", forbidden)
-    assert cli.main(["train", "--dry-run", "--device", "cpu", "--episodes", "10"]) == 0
+    monkeypatch.setattr("torch.cuda.is_available", forbidden)
+    assert cli.main(["train", "--dry-run", "--episodes", "10"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["training_started"] is False
     assert result["training"]["episodes"] == 10
+    assert result["device"]["name"] == "cpu"
     assert result["environment"]["track"] == result["training"]["tracks"][0]
 
 

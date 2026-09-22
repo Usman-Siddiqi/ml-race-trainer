@@ -61,3 +61,55 @@ def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
         save_checkpoint(path, agent, EnvConfig(), TrainConfig(), 0, (0.0, 0.0, 0.0))
     assert path.read_bytes() == b"previous checkpoint"
     assert list(tmp_path.iterdir()) == [path]
+
+
+def test_resume_dry_run_preserves_saved_settings_without_constructing_an_agent(
+    tmp_path, monkeypatch, capsys
+):
+    from race_trainer.cli import main
+
+    agent = DQNAgent(AgentConfig(hidden_size=8, replay_capacity=4, batch_size=2))
+    path = tmp_path / "resume.pt"
+    save_checkpoint(
+        path,
+        agent,
+        EnvConfig(track="square"),
+        TrainConfig(tracks=("square",), seed=9),
+        10,
+        (0.0, 0.0, 0.0),
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Resume dry run must not construct an agent or train")
+
+    monkeypatch.setattr(DQNAgent, "__init__", forbidden)
+    assert main(["train", "--resume", str(path), "--episodes", "20", "--dry-run"]) == 0
+    import json
+
+    config = json.loads(capsys.readouterr().out)
+    assert config["training"]["seed"] == 9
+    assert config["environment"]["track"] == "square"
+    assert config["agent"]["hidden_size"] == 8
+    assert main(["train", "--resume", str(path), "--episodes", "5", "--dry-run"]) == 2
+
+
+def test_missing_agent_state_is_a_clear_error(tmp_path):
+    path = tmp_path / "broken.pt"
+    torch.save(
+        {
+            "format_version": 2,
+            "observation_version": 2,
+            "action_version": 2,
+            "env_config": {},
+            "train_config": {},
+            "agent": {},
+            "completed_episodes": 0,
+            "best_score": [0.0, 0.0, 0.0],
+            "episode_boundary": True,
+            "torch_rng": torch.get_rng_state(),
+            "cuda_rng": [],
+        },
+        path,
+    )
+    with pytest.raises(ValueError, match="required agent state"):
+        load_checkpoint(path)

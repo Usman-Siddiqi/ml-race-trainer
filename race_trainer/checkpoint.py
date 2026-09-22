@@ -66,6 +66,20 @@ def load_checkpoint(path):
     ):
         if name not in payload:
             raise ValueError(f"Checkpoint is missing {name}")
+    required_agent = {
+        "config",
+        "online",
+        "target",
+        "optimizer",
+        "replay",
+        "rng",
+        "env_steps",
+        "updates",
+    }
+    if not isinstance(payload["agent"], dict) or not required_agent.issubset(payload["agent"]):
+        raise ValueError("Checkpoint is missing required agent state")
+    if not isinstance(payload["completed_episodes"], int) or payload["completed_episodes"] < 0:
+        raise ValueError("Checkpoint has an invalid completed episode count")
     EnvConfig(**payload["env_config"])
     TrainConfig(**payload["train_config"])
     AgentConfig(**payload["agent"]["config"])
