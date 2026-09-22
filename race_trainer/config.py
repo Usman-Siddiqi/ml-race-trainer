@@ -1,0 +1,98 @@
+"""Serializable contracts shared by simulation, checkpoints, and every entry point."""
+
+from dataclasses import dataclass
+
+TRACK_NAMES = ("oval", "s_track", "square")
+OBSERVATION_VERSION = 2
+ACTION_VERSION = 2
+OBSERVATION_SIZE = 13
+
+
+@dataclass(frozen=True)
+class EnvConfig:
+    track: str = "oval"
+    laps: int = 1
+    max_steps: int = 2000
+    stall_steps: int = 240
+    random_start: bool = True
+    dt: float = 1 / 30
+    max_speed: float = 180.0
+    acceleration: float = 120.0
+    braking: float = 220.0
+    drag: float = 15.0
+    wheelbase: float = 26.0
+    max_steering: float = 0.55
+    sensor_range: float = 220.0
+
+    def __post_init__(self):
+        if self.track not in TRACK_NAMES:
+            raise ValueError(f"Unknown track {self.track!r}; choose from {TRACK_NAMES}")
+        if self.laps < 1 or self.max_steps < 1 or self.stall_steps < 1:
+            raise ValueError("laps, max_steps, and stall_steps must be positive")
+        if self.track == "s_track" and self.laps != 1:
+            raise ValueError("The S-track is a sprint; it supports one finish, not repeated laps")
+        for key in ("dt", "max_speed", "acceleration", "braking", "wheelbase", "sensor_range"):
+            if getattr(self, key) <= 0:
+                raise ValueError(f"{key} must be positive")
+        if not 0 < self.max_steering < 1.2 or self.drag < 0:
+            raise ValueError("Invalid steering angle or drag")
+        if self.max_speed * self.dt > 10:
+            raise ValueError("max_speed * dt must be <= 10 pixels to preserve collision resolution")
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    hidden_size: int = 128
+    learning_rate: float = 0.0003
+    gamma: float = 0.99
+    batch_size: int = 128
+    replay_capacity: int = 50000
+    learning_starts: int = 2000
+    train_every: int = 4
+    target_update_every: int = 1000
+    epsilon_start: float = 1.0
+    epsilon_end: float = 0.05
+    exploration_steps: int = 100000
+    gradient_clip: float = 10.0
+
+    def __post_init__(self):
+        for key in (
+            "hidden_size",
+            "batch_size",
+            "replay_capacity",
+            "learning_starts",
+            "train_every",
+            "target_update_every",
+            "exploration_steps",
+        ):
+            if getattr(self, key) < 1:
+                raise ValueError(f"{key} must be positive")
+        if self.replay_capacity < self.batch_size:
+            raise ValueError("Replay capacity must hold at least one batch")
+        if not 0 <= self.epsilon_end <= self.epsilon_start <= 1:
+            raise ValueError("Expected 0 <= epsilon_end <= epsilon_start <= 1")
+        if not 0 <= self.gamma <= 1 or self.learning_rate <= 0 or self.gradient_clip <= 0:
+            raise ValueError("Invalid optimizer parameters")
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    episodes: int = 1000
+    tracks: tuple[str, ...] = TRACK_NAMES
+    seed: int = 42
+    eval_every: int = 25
+    eval_episodes: int = 5
+    save_every: int = 100
+    device: str = "auto"
+    cpu_threads: int = 2
+
+    def __post_init__(self):
+        if not self.tracks or any(t not in TRACK_NAMES for t in self.tracks):
+            raise ValueError(f"Choose at least one track from {TRACK_NAMES}")
+        for key in ("episodes", "eval_every", "eval_episodes", "save_every", "cpu_threads"):
+            if getattr(self, key) < 1:
+                raise ValueError(f"{key} must be positive")
+        if self.seed < 0:
+            raise ValueError("seed must be nonnegative")
+        if self.device not in ("auto", "cpu", "cuda"):
+            raise ValueError("device must be auto, cpu, or cuda")

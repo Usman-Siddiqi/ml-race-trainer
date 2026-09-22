@@ -1,12 +1,13 @@
-# Pygame and Python
 __pycache__/
-*.pyc
-
-# Models
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+runs/
+artifacts/
 *.pth
-
-# Logs
+*.pt
 *.log
-
-# Images
-*.png
