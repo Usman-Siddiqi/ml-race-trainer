@@ -1,167 +1,164 @@
-# ML Race Trainer
+# Race Lab · ML Race Trainer
 
-A 2D top-view racetrack environment for training autonomous cars using reinforcement learning. The car has 3 forward-facing sensors and must navigate the track without hitting the walls.
+A racing and reinforcement-learning lab for manual driving, Double DQN training, and
+repeatable evaluation. Version 2 shares one geometry across walls, sensors, and finish gates.
+Opening the app shows a menu. Training starts only through **Start training** or an explicit
+`train` command.
 
-## Features
+![Race Lab menu](docs/ui-preview.png)
 
-- **Reinforcement Learning Environment**: Gymnasium-compatible environment for training AI agents
-- **Deep Q-Network (DQN) Training**: Complete training pipeline with experience replay and target networks
-- **Visual Training**: Watch your AI learn to race around the track
-- **Model Watching**: Observe trained models race with detailed statistics
-- **Manual Control**: Test the track manually with keyboard controls
-- **Easy-to-Use Interface**: Main menu for easy navigation between training and watching modes
+## Start on Windows
 
-## Installation
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed. From this folder:
 
-1. **Install Python Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```powershell
+# Install NVIDIA CUDA support. Setup runs no GPU workload or training.
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Device cuda
 
-2. **Run the Application**:
-   ```bash
-   python main.py
-   ```
-
-## Usage
-
-### Main Menu
-Run `python main.py` to access the main menu with the following options:
-
-1. **Train New Model (Fast)**: Train a new AI model using Deep Q-Network (no visualization, fastest)
-2. **Train New Model (Visual)**: Train with periodic visualization of the AI learning
-3. **Train New Model (Advanced Visual)**: Train with live plots and real-time visualization
-4. **Watch Trained Model**: Watch an existing trained model race
-5. **Manual Control**: Test the track manually with keyboard controls
-6. **Exit**: Close the application
-
-### Training a Model
-
-The training process uses Deep Q-Network (DQN) with the following features:
-- **Experience Replay**: Stores and samples from past experiences
-- **Target Network**: Stable learning with periodic target network updates
-- **Epsilon-Greedy Exploration**: Balances exploration and exploitation
-- **Automatic Model Saving**: Saves best and periodic models during training
-
-**Training Modes**:
-1. **Fast Mode**: No visualization, maximum training speed
-2. **Visual Mode**: Periodic visualization of AI learning (every 25 episodes)
-3. **Advanced Visual Mode**: Live plots + real-time visualization with performance metrics
-
-**Training Parameters**:
-- Episodes: 1000 (configurable)
-- Action Space: 9 discrete actions (combinations of acceleration/steering)
-- Observation Space: 7 features (3 sensor distances, speed, angle, checkpoint progress)
-- Reward System: Speed bonus, checkpoint rewards, crash penalties
-
-### Watching Trained Models
-
-Once you have a trained model, you can watch it race with:
-- **Real-time Visualization**: See the AI car navigate the track
-- **Performance Statistics**: Track checkpoints, crashes, and completion rates
-- **Interactive Controls**: Pause, reset, or stop episodes
-- **Multiple Episodes**: Watch multiple runs for performance analysis
-
-### Manual Control
-
-Test the track manually using keyboard controls:
-- **Arrow Keys**: 
-  - UP: Accelerate
-  - DOWN: Brake/Reverse
-  - LEFT: Turn left
-  - RIGHT: Turn right
-- **ESC**: Exit
-
-## File Structure
-
-```
-ml-race-trainer/
-├── main.py                 # Main menu interface
-├── race_environment.py     # Gymnasium racing environment
-├── train_model.py          # DQN training script
-├── watch_model.py          # Model watching script
-├── requirements.txt        # Python dependencies
-└── README.md              # This file
+# Double-click Launch Race Lab.cmd, or:
+$racePython = Join-Path $env:LOCALAPPDATA 'RaceTrainer\venv\Scripts\python.exe'
+& $racePython -m race_trainer app
 ```
 
-## Environment Details
+Use `-Device cpu` for a smaller CPU-only installation. Setup uses Python 3.12 and `uv.lock`.
+Its environment lives under `%LOCALAPPDATA%\RaceTrainer\venv`, so large Python/CUDA files
+stay outside OneDrive. It does not modify global Python. The launcher also supports a
+conventional project `.venv` when the local runtime is absent.
 
-### Car Properties
-- **Size**: 20x12 pixels
-- **Max Speed**: 8 units per step
-- **Sensors**: 3 forward-facing distance sensors (left, center, right)
-- **Starting Position**: Right side of track, facing down
+On other platforms, run `uv sync --locked --python 3.12 --extra cpu`, then use the Python
+executable inside `.venv`. Do not install `pygame` alongside `pygame-ce`; both provide the
+same `pygame` import. Pip fallback files are provided, but uv uses the full dependency lock.
 
-### Track
-- **Shape**: Oval track with inner and outer boundaries
-- **Checkpoints**: 10 checkpoints around the track
-- **Collision Detection**: Car fails if any corner hits a wall
+## Drive and inspect
 
-### Reward System
-- **Speed Reward**: +0.1 per unit of speed
-- **Checkpoint Reward**: +100 per checkpoint passed
-- **Survival Reward**: +1 per step on track
-- **Crash Penalty**: -100 for hitting walls
-- **Completion Bonus**: +500 for completing all checkpoints
-- **Time Penalty**: -0.1 per step (encourages efficiency)
-
-## Training Tips
-
-1. **Start with Few Episodes**: Begin with 100-200 episodes to test your setup
-2. **Monitor Progress**: Watch the training progress in the console
-3. **Check Model Files**: Look for `best_race_model.pth` and other saved models
-4. **Adjust Parameters**: Modify learning rate, epsilon decay, etc. in `train_model.py`
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"No trained models found"**: Train a model first using the "Train New Model" option
-2. **Training is slow**: This is normal for the first few episodes. Performance improves over time
-3. **Model crashes frequently**: The AI needs more training episodes to learn proper navigation
-4. **PyTorch not found**: Install PyTorch with `pip install torch`
-
-### Performance Tips
-
-- **GPU Training**: Install CUDA-enabled PyTorch for faster training
-- **Reduce Episodes**: Start with fewer episodes for testing
-- **Adjust Network Size**: Modify hidden layer sizes in `DQN` class for different performance
-
-## Advanced Usage
-
-### Command Line Training
-```bash
-# Fast training (no visualization)
-python train_model.py --mode train --episodes 2000
-
-# Visual training (periodic visualization)
-python train_model.py --mode train --episodes 2000 --visual --render-interval 25
-
-# Advanced visual training (live plots + real-time visualization)
-python visual_train.py --episodes 2000 --render-interval 10
+```powershell
+& $racePython -m race_trainer doctor
+& $racePython -m race_trainer tracks
+& $racePython -m race_trainer manual --track s_track
+& $racePython -m race_trainer render --track square --output artifacts\square.png
 ```
 
-### Command Line Watching
-```bash
-python watch_model.py --model best_race_model.pth --episodes 5
+`doctor` reads package, power, and CUDA metadata without running a benchmark or GPU tensor
+operation. `render` produces a CPU-rendered PNG without a policy or training.
+
+| Control | Action |
+| --- | --- |
+| W / Up | Accelerate |
+| S / Down | Brake |
+| A D / Left Right | Steer |
+| Release throttle | Coast |
+| Space | Pause |
+| R | Restart with the same episode seed |
+| Tab | Toggle sensors |
+| Esc | Return to the menu |
+| Enter, after a model episode | Next replay episode / finish replay |
+
+Oval and rounded-square circuits have 12 ordered gates per lap. The S-curve is a sprint
+with six gates and a finish before the road ends. Gates count only in sequence and in the
+correct direction. Speed is measured in simulation units per second.
+
+## Devices
+
+**CPU is the default for training and replay.**
+
+| Option | Behavior |
+| --- | --- |
+| `--device cpu` | CPU execution; two training threads by default |
+| `--device cuda` | Networks and minibatches use the NVIDIA GPU; errors clearly if unavailable |
+| `--device auto` | CUDA only when available and Windows reports external power; otherwise CPU |
+
+Automatic selection uses the operating system's power report. USB power may count as
+external power; select `cpu` for an unambiguous choice. Explicit `cuda` overrides power
+detection. Automatic selection uses CPU when power status is unknown. Simulation and replay
+storage remain on CPU. No GPU speedup has been measured for this small network.
+
+## Training, when ready
+
+Inspect the configuration without constructing an agent or starting a run:
+
+```powershell
+& $racePython -m race_trainer train --dry-run --device cpu
 ```
 
-### Custom Parameters
-Modify the `DQNAgent` class in `train_model.py` to adjust:
-- Learning rate
-- Epsilon decay
-- Network architecture
-- Replay buffer size
+The following command **starts training** when invoked:
 
-## Contributing
+```powershell
+& $racePython -m race_trainer train --episodes 1000 --tracks oval s_track square --device cuda
+```
 
-Feel free to modify and improve the code:
-- Add new reward functions
-- Implement different RL algorithms
-- Create new track layouts
-- Add more sensor types
-- Improve the visualization
+Desktop setup trains on the selected track. The CLI defaults to all three in a balanced
+rotation. Tracks and physics are saved with the run. Options include `--seed`, `--max-steps`,
+`--batch-size`, `--learning-rate`, `--learning-starts`, `--exploration-steps`, `--eval-every`,
+`--eval-episodes`, `--save-every`, and `--cpu-threads`. `--render-every 25` shows one episode
+every 25; the default is headless.
 
-## License
+Each run gets a new directory under `runs/`. An explicit `--output` must also name a new directory.
 
-This project is open source and available under the MIT License.
+| File | Contents |
+| --- | --- |
+| `config.json` | Configuration, chosen device, and resume source |
+| `metrics.jsonl` | Episode rewards, loss, exploration, steps, and finish reasons |
+| `evaluations.jsonl` | Per-track evaluation summaries and individual episode results |
+| `best.pt` | Best fixed-seed evaluation result |
+| `latest.pt` | Periodic and final resume state |
+
+Use **Stop & save**, close the training monitor, or press Ctrl+C in a training terminal to
+save `latest.pt`. A `stop.request` file is checked between environment steps. If stopped
+mid-episode, resume restarts that episode and retains experience already in replay.
+
+```powershell
+& $racePython -m race_trainer train --resume runs\YOUR_RUN\latest.pt --episodes 2000 --device cuda
+```
+
+`--episodes` is the total target, including completed episodes. Resume preserves seed, tracks,
+physics, and learning settings and creates a new run directory. Checkpoints contain both
+networks, Adam state, replay, counters, random state, configuration, and observation/action
+versions. Saves replace files atomically.
+
+## Watch and evaluate
+
+```powershell
+& $racePython -m race_trainer watch --model runs\YOUR_RUN\best.pt
+& $racePython -m race_trainer watch --model runs\YOUR_RUN\best.pt --track square
+& $racePython -m race_trainer evaluate --model runs\YOUR_RUN\best.pt --tracks oval s_track square --episodes 10 --output artifacts\evaluation.json
+```
+
+Replay defaults to the saved track and physics. The menu uses its visibly selected track
+with the checkpoint's physics. Greedy evaluation reports completion/crash rates, checkpoint
+fraction, reward mean/deviation, and successful finish time. These three fixed layouts and
+seeded starting variations do not establish generalization to arbitrary unseen circuits.
+
+## What changed
+
+- Nine wall sensors, speed, relative lookahead heading, and lateral offset: 13 normalized inputs.
+- Nine actions: accelerate/coast/brake crossed with left/straight/right.
+- Bicycle-style turning, drag, fixed simulation steps, directed gates, and progress rewards.
+- Vectorized raycasts and cached geometry shared by rendering, sensors, and collisions.
+- Double DQN, Huber loss, gradient clipping, and exploration paced by environment steps.
+- Truncation ends a rollout while retaining the Bellman bootstrap.
+- One training loop, one CLI, and a responsive desktop monitor with a background process.
+
+Your original `best_race_model.pth` is preserved. Its seven-input weights are incompatible
+with the changed sensors, actions, and physics. Version 2 rejects it with an explanation.
+The recovered original code is committed at `c940c81` for historical comparisons.
+
+Old script names are adapters: `main.py`, `simple_main.py`, and `debug_main.py` open the
+menu; training scripts without arguments print help. `watch_model.py` and
+`test_generalization.py` use version 2 checkpoints. `quick_test.py` reads diagnostics.
+
+## Development
+
+```powershell
+& $racePython -m pytest -q
+& $racePython -m ruff check .
+& $racePython -m ruff format --check .
+```
+
+Tests force CPU operation and block backpropagation and Adam updates. They cover track
+finishes using fixed arithmetic steering, geometry, Gymnasium contracts, seeded resets,
+Double DQN targets, replay/checkpoint restoration, device selection, startup, rendering,
+and a mocked monitor process. CI runs the same CPU checks on Windows and Linux when pushed.
+See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
+
+References: [Gymnasium time limits](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/),
+[PyTorch installation](https://pytorch.org/get-started/locally/), and [pygame-ce](https://pyga.me/docs/).
