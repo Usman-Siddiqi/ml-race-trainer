@@ -4,6 +4,7 @@ test_generalization.py
 Test whether a trained model can generalize to different tracks.
 """
 
+import math
 import numpy as np
 import torch
 import pygame
@@ -15,7 +16,35 @@ class ModifiedRaceCarEnv(RaceCarEnv):
     """
     Modified race environment with a different track shape.
     """
-    
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        center_x = self.track_width // 2
+        center_y = self.track_height // 2
+
+        # Position the car on the upper straight, facing clockwise
+        self.start_position = (center_x, center_y - 150)
+        self.start_angle = 90
+
+        self.car_x = self.start_position[0]
+        self.car_y = self.start_position[1]
+        self.car_angle = self.start_angle
+
+        # Replace checkpoints with square-friendly layout
+        self.checkpoints = self._generate_square_checkpoints()
+        self.total_checkpoints = len(self.checkpoints)
+
+        # Reset checkpoint bookkeeping for the new configuration
+        self.current_checkpoint = 0
+        self.checkpoints_passed_this_lap = 0
+        self.total_checkpoints_passed = 0
+        self.laps_completed = 0
+        if self.checkpoints:
+            cp_x, cp_y = self.checkpoints[self.current_checkpoint]
+            self.last_distance_to_checkpoint = math.hypot(self.car_x - cp_x, self.car_y - cp_y)
+        else:
+            self.last_distance_to_checkpoint = float('inf')
+
     def _generate_track(self) -> dict:
         """
         Generate a different track shape (square instead of oval).
@@ -65,6 +94,23 @@ class ModifiedRaceCarEnv(RaceCarEnv):
             return True
             
         return False
+
+    def _generate_square_checkpoints(self):
+        """
+        Generate checkpoints positioned around the square track.
+        """
+        center_x, center_y = self.track_width // 2, self.track_height // 2
+        offset = 150  # Midpoint between inner (100) and outer (200) boundaries
+        return [
+            (center_x, center_y - offset),
+            (center_x + offset, center_y - offset),
+            (center_x + offset, center_y),
+            (center_x + offset, center_y + offset),
+            (center_x, center_y + offset),
+            (center_x - offset, center_y + offset),
+            (center_x - offset, center_y),
+            (center_x - offset, center_y - offset),
+        ]
 
 def cleanup_pygame():
     """
@@ -161,6 +207,9 @@ def test_model_on_track(env, model_path, episodes, track_name):
         print(f"  Starting {episodes} episodes on {track_name}...")
         
         results = []
+        total_checkpoints_required = getattr(env, 'total_checkpoints', 0)
+        if not total_checkpoints_required and hasattr(env, 'checkpoints'):
+            total_checkpoints_required = len(env.checkpoints)
         
         for episode in range(episodes):
             print(f"\n{track_name} - Episode {episode + 1}/{episodes}")
@@ -196,7 +245,7 @@ def test_model_on_track(env, model_path, episodes, track_name):
                     crashed = info.get('crashed', False)
                     checkpoints = info.get('checkpoints_passed', 0)
                     
-                    if checkpoints >= 10:
+                    if total_checkpoints_required and checkpoints >= total_checkpoints_required:
                         completed = True
                     
                     # Render with error handling
@@ -217,8 +266,9 @@ def test_model_on_track(env, model_path, episodes, track_name):
                     'completed': completed
                 })
                 
+                checkpoint_goal = total_checkpoints_required if total_checkpoints_required else "?"
                 print(f"  Score: {total_reward:.2f}, Steps: {steps}, "
-                      f"Checkpoints: {checkpoints}/10, Crashed: {crashed}, Completed: {completed}")
+                      f"Checkpoints: {checkpoints}/{checkpoint_goal}, Crashed: {crashed}, Completed: {completed}")
                 
             except Exception as episode_error:
                 print(f"  Error in episode {episode + 1}: {episode_error}")

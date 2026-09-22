@@ -78,10 +78,13 @@ class RaceCarEnv(gym.Env):
         self.episode_steps = 0
         self.max_episode_steps = 2000
         self.crashed = False
-        self.total_checkpoints = 10
+        if self.track_type == 's_track':
+            self.total_checkpoints = len(self._generate_s_checkpoints())
+        else:
+            self.total_checkpoints = 10
         
         # Fixed checkpoint tracking variables
-        self.current_checkpoint = 0  # Which checkpoint to hit next (0-9)
+        self.current_checkpoint = 0  # Which checkpoint the car must hit next
         self.checkpoints_passed_this_lap = 0  # How many checkpoints passed in current lap
         self.total_checkpoints_passed = 0  # Total checkpoints ever passed
         self.laps_completed = 0  # Number of complete laps
@@ -89,6 +92,9 @@ class RaceCarEnv(gym.Env):
         
         # Generate checkpoints along the track
         self.checkpoints = self._generate_checkpoints()
+        # Ensure checkpoint count matches the generated layout
+        if self.checkpoints:
+            self.total_checkpoints = len(self.checkpoints)
         
         # Action space: [acceleration, steering]
         # acceleration: -1 (brake) to 1 (accelerate)
@@ -736,7 +742,7 @@ class RaceCarEnv(gym.Env):
         info_lines = [
             f"Speed: {self.car_speed:.1f}",
             f"Laps: {self.laps_completed}",
-            f"This Lap: {self.checkpoints_passed_this_lap}/10",
+            f"This Lap: {self.checkpoints_passed_this_lap}/{self.total_checkpoints}",
             f"Next CP: {self.current_checkpoint}",
             f"Total CPs: {self.total_checkpoints_passed}",
             f"Steps: {self.episode_steps}"

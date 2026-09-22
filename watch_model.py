@@ -64,6 +64,9 @@ class ModelWatcher:
         steps = 0
         crashed = False
         completed = False
+        total_checkpoints = getattr(self.env, 'total_checkpoints', 0)
+        if not total_checkpoints and hasattr(self.env, 'checkpoints'):
+            total_checkpoints = len(self.env.checkpoints)
         
         print("Starting episode... Press ESC to stop, SPACE to pause")
         
@@ -105,7 +108,7 @@ class ModelWatcher:
                 crashed = info.get('crashed', False)
                 checkpoints = info.get('checkpoints_passed', 0)
                 
-                if checkpoints >= 10:
+                if total_checkpoints and checkpoints >= total_checkpoints:
                     completed = True
                 
                 # Render
@@ -122,7 +125,8 @@ class ModelWatcher:
         print(f"\nEpisode Results:")
         print(f"  Steps: {steps}")
         print(f"  Total Reward: {total_reward:.2f}")
-        print(f"  Checkpoints: {info.get('checkpoints_passed', 0)}/10")
+        checkpoint_goal = total_checkpoints if total_checkpoints else "?"
+        print(f"  Checkpoints: {info.get('checkpoints_passed', 0)}/{checkpoint_goal}")
         print(f"  Crashed: {crashed}")
         print(f"  Completed: {completed}")
         
@@ -182,6 +186,9 @@ class ModelWatcher:
         avg_reward = np.mean([r['reward'] for r in results])
         avg_steps = np.mean([r['steps'] for r in results])
         avg_checkpoints = np.mean([r['checkpoints'] for r in results])
+        checkpoint_goal = getattr(self.env, 'total_checkpoints', 0)
+        if not checkpoint_goal and hasattr(self.env, 'checkpoints'):
+            checkpoint_goal = len(self.env.checkpoints)
         
         print(f"\n=== SUMMARY STATISTICS ===")
         print(f"Total Episodes: {total_episodes}")
@@ -189,7 +196,10 @@ class ModelWatcher:
         print(f"Crashed: {crashed_episodes} ({crashed_episodes/total_episodes*100:.1f}%)")
         print(f"Average Reward: {avg_reward:.2f}")
         print(f"Average Steps: {avg_steps:.1f}")
-        print(f"Average Checkpoints: {avg_checkpoints:.1f}/10")
+        if checkpoint_goal:
+            print(f"Average Checkpoints: {avg_checkpoints:.1f}/{checkpoint_goal}")
+        else:
+            print(f"Average Checkpoints: {avg_checkpoints:.1f}")
     
     def close(self):
         """Close the environment."""
