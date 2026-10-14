@@ -40,15 +40,16 @@ See [VALIDATION.md](VALIDATION.md) for dates, scope, resources, and limitations.
 
 ## Open the right folder and runtime
 
-The original project folder on this computer is:
+The active project folder on this computer is:
 
 ```text
-C:\Users\usman\OneDrive - Queen's University\2025 Fall\APSC 143\Practise Code\ml-race-trainer
+C:\Users\usman\Documents\Code\ml-race-trainer
 ```
 
-Open that folder directly in T3 Code. The rebuilt source, commits, and docs are already
-there. A fresh clone from the remote will not contain the unpublished local work until
-that history is transferred or pushed.
+Open that folder directly in T3 Code. It contains the full Git history, unpublished local
+commits, ignored original model, validation artifacts, and project docs. The former OneDrive
+copy is still present because Windows reports that it is in use; use the Documents copy as
+the active checkout.
 
 The Windows runtime is installed outside OneDrive:
 
