@@ -43,6 +43,7 @@ explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gpu: bounded CUDA inference and learning checks, enabled only with --run-gpu"]
 
 [tool.ruff]
 line-length = 100

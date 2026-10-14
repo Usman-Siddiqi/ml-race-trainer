@@ -73,4 +73,10 @@ resume, retaining experience already in replay. Devices or library versions may 
 different numerical learning trajectories.
 
 CUDA accelerates network operations; simulation and replay storage stay on CPU. CPU is the
-default. No training result or GPU speedup was measured during this rebuild.
+default. Bounded CUDA checks now exercise inference, learning, checkpoint restore, and the
+desktop subprocess. They do not establish convergence, driving quality, or a GPU speedup.
+See [the validation record](VALIDATION.md) for the measured scope and results.
+
+Optimizer restore copies its state before passing it to PyTorch. Adam can otherwise retain
+CPU step tensors shared with the loaded checkpoint or another restored agent, so advancing
+one optimizer could change another agent's counters.

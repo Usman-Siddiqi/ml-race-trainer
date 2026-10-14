@@ -154,10 +154,24 @@ menu; training scripts without arguments print help. `watch_model.py` and
 & $racePython -m ruff format --check .
 ```
 
-Tests force CPU operation and block backpropagation and Adam updates. They cover track
-finishes using fixed arithmetic steering, geometry, Gymnasium contracts, seeded resets,
-Double DQN targets, replay/checkpoint restoration, device selection, startup, rendering,
-and a mocked monitor process. CI runs the same CPU checks on Windows and Linux when pushed.
+The default suite forces CPU operation, blocks backpropagation and Adam updates, and skips
+GPU tests. It covers track finishes using fixed arithmetic steering, geometry, Gymnasium
+contracts, seeded resets, Double DQN targets, replay/checkpoint restoration, device selection,
+startup, rendering, and a mocked monitor process. CI runs these CPU checks on Windows and Linux.
+
+To explicitly run the bounded CUDA checks on a machine with the CUDA runtime installed:
+
+```powershell
+& $racePython -m pytest -q -m gpu --run-gpu --junitxml=artifacts\gpu-validation.xml
+```
+
+These six checks execute GPU inference, backpropagation, Adam updates, target synchronization,
+CPU/CUDA checkpoint restoration, CLI stop/resume, and a real desktop training subprocess.
+Integration runs are limited to 24-40 steps per episode and write disposable models under
+pytest's temporary directory. They verify the learning pipeline; they do not produce a
+trained driver or measure whether CUDA is faster than CPU. CUDA checks fail if explicitly
+requested without a working GPU.
+
 See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
 
 References: [Gymnasium time limits](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/),
