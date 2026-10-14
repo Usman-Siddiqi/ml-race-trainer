@@ -45,6 +45,28 @@ def test_legacy_or_wrong_contract_is_rejected_clearly(tmp_path):
         load_checkpoint(path)
 
 
+def test_optimizer_restores_do_not_share_state_with_each_other_or_the_checkpoint():
+    config = AgentConfig(hidden_size=8, replay_capacity=4, batch_size=2)
+    original = DQNAgent(config)
+    parameter = next(original.online.parameters())
+    original.optimizer.state[parameter] = {
+        "step": torch.tensor(3.0),
+        "exp_avg": torch.zeros_like(parameter),
+        "exp_avg_sq": torch.ones_like(parameter),
+    }
+    checkpoint = original.state_dict()
+    left, right = DQNAgent(config), DQNAgent(config)
+    left.load_state_dict(checkpoint)
+    right.load_state_dict(checkpoint)
+    left_state = left.optimizer.state[next(left.online.parameters())]
+    right_state = right.optimizer.state[next(right.online.parameters())]
+    left_state["step"].add_(1)
+    left_state["exp_avg"].fill_(0.5)
+    assert right_state["step"].item() == original.optimizer.state[parameter]["step"].item() == 3
+    assert not torch.count_nonzero(right_state["exp_avg"])
+    assert not torch.count_nonzero(original.optimizer.state[parameter]["exp_avg"])
+
+
 def test_failed_save_preserves_previous_checkpoint(tmp_path, monkeypatch):
     path = tmp_path / "latest.pt"
     path.write_bytes(b"previous checkpoint")

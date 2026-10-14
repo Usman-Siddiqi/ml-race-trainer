@@ -1,5 +1,6 @@
 """Double DQN with an environment-step exploration clock and bounded CPU replay."""
 
+from copy import deepcopy
 from dataclasses import asdict
 
 import numpy as np
@@ -166,8 +167,9 @@ class DQNAgent:
             raise ValueError("Checkpoint agent configuration does not match")
         self.online.load_state_dict(state["online"])
         self.target.load_state_dict(state["target"])
-        self.optimizer.load_state_dict(state["optimizer"])
-        # PyTorch moves Adam state to the parameter device when loading.
+        # PyTorch moves moments to the parameter device but can retain shared CPU
+        # step tensors. Each restore must own its optimizer state independently.
+        self.optimizer.load_state_dict(deepcopy(state["optimizer"]))
         self.replay.load_state_dict(state["replay"])
         self.rng.bit_generator.state = state["rng"]
         self.env_steps, self.updates = state["env_steps"], state["updates"]
