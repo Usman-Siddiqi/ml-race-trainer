@@ -5,6 +5,10 @@ repeatable evaluation. Version 2 shares one geometry across walls, sensors, and 
 Opening the app shows a menu. Training starts only through **Start training** or an explicit
 `train` command.
 
+For continuing development in a new editor or coding tool, start with the
+[project handoff](docs/HANDOFF.md), [project instructions](AGENTS.md), and
+[documentation index](docs/README.md).
+
 ![Race Lab menu](docs/ui-preview.png)
 
 ## Start on Windows
