@@ -1,7 +1,8 @@
 # Project instructions
 
-This repository is Race Lab / ML Race Trainer v2, a Python racing simulator and Double DQN
-learning lab. These instructions apply to any coding tool working in this checkout.
+This repository is Race Lab / ML Race Trainer v3, a Python racing simulator and Double DQN
+learning lab. Cars learn from car-mounted sensors on generated tracks and are tested on
+tracks they have not seen. These instructions apply to any coding tool working in this checkout.
 
 ## Read first
 
@@ -17,19 +18,24 @@ learning lab. These instructions apply to any coding tool working in this checko
 - Active implementation lives in `race_trainer/`. Top-level Python scripts are adapters;
   add features to the package rather than creating another training loop.
 - Opening the app or its setup screen must not start training. Training starts through
-  an explicit command or the Start training button.
-- CPU is the default. Explicit CUDA and power-aware auto selection are supported.
-  Bounded GPU tests may be run with `--run-gpu`; full policy training and sustained
-  benchmarks need a user request. Earlier bounded GPU checks are already authorized.
-- Geometry for drawing, sensors, collision, progress, and finish gates must stay consistent.
+  an explicit command or the Start training button, and runs headless.
+- The policy's inputs are limited to what the car can measure: wall-distance rays, speed,
+  and its previous controls. Do not feed it centerline, gate, or lap-progress information.
+- Default training uses generated tracks only. The validation seeds, the test seeds, and
+  the three built-in layouts stay out of the default training pool, and `evaluate` reports
+  any evaluated track that a model trained on.
+- There is one simulator, `RaceSim`. One car and many cars must agree exactly, and geometry
+  for drawing, sensors, collision, progress, and finish gates must stay consistent.
 - Crash/finish are terminal. Time limits/stalls truncate and retain the Bellman bootstrap.
-- Preserve the original `best_race_model.pth`. Its seven-input weights are incompatible
-  with v2 and are intentionally rejected.
+- Training defaults to `--device auto`: CUDA on external power when available, otherwise
+  CPU. Explicit `cpu` and `cuda` are supported. Watching and evaluating default to CPU.
+- Preserve the original `best_race_model.pth`. Its seven-input weights, and version 2
+  checkpoints, are incompatible with v3 and are intentionally rejected.
 - Checkpoints must preserve the learning configuration, replay, RNG, and optimizer state.
   Each optimizer restore must own independent tensors; keep the Adam alias regression test.
 - Observation/action changes need explicit contract versioning and compatibility handling.
-- Resume creates a new run directory and preserves saved parameters. A partially stopped
-  episode restarts while retaining its experience in replay.
+- Resume creates a new run directory and preserves saved parameters. Cars restart on
+  resume while their earlier experience stays in replay behind a break marker.
 
 ## Runtime and checks
 
@@ -47,8 +53,14 @@ The default suite hides CUDA and prohibits backpropagation/Adam updates. Do not 
 those protections to make a CPU test pass. Run checks appropriate to code changes;
 documentation-only changes need link/content checks rather than rerunning learning tests.
 
+A default training run takes a few minutes on this machine, so training to check a change
+to learning, rewards, physics, or tracks is expected: train, then score the result with
+`evaluate` on unseen tracks. Compare settings over more than one seed before changing
+defaults, and record what was measured in the validation record.
+
 Use Python 3.12 and `uv.lock` for the recorded setup. Reinstall through `setup.ps1` after
-moving the source folder so the editable install resolves the correct package.
+moving the source folder so the editable install resolves the correct package. If the
+LocalAppData environment is missing, `setup.ps1 -Device cuda` recreates it.
 
 ## Working conventions
 

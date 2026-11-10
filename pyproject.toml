@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ml-race-trainer"
-version = "2.0.0"
+version = "3.0.0"
 description = "A reproducible racing simulator and Double DQN learning lab"
 requires-python = ">=3.11,<3.14"
 dependencies = ["numpy>=2.0,<3", "gymnasium>=1.1,<2", "pygame-ce>=2.5.8,<3"]

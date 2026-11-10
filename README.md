@@ -1,7 +1,19 @@
 # Race Lab · ML Race Trainer
 
-A racing and reinforcement-learning lab for manual driving, Double DQN training, and
-repeatable evaluation. Version 2 shares one geometry across walls, sensors, and finish gates.
+A racing and reinforcement-learning lab. Cars learn to drive from their own sensors, train
+headlessly on generated tracks, and are then tested on tracks they have never seen.
+You can also drive by hand and watch any trained model on any track.
+
+Version 3 changed what the car sees and how it trains:
+
+- **Sensors only.** The policy reads 15 wall-distance rays, its speed, and its previous
+  controls. It gets no map, centerline, or lap-progress input, so it cannot memorize a track.
+- **Generated tracks.** Training draws from a pool of 512 generated layouts. The three
+  hand-built layouts and all evaluation layouts are held out.
+- **Headless and fast.** 64 cars are simulated at once and one learner trains on all of
+  them. A default run is one million steps; see [validation](docs/VALIDATION.md) for
+  measured times and results.
+
 Opening the app shows a menu. Training starts only through **Start training** or an explicit
 `train` command.
 
@@ -33,17 +45,127 @@ On other platforms, run `uv sync --locked --python 3.12 --extra cpu`, then use t
 executable inside `.venv`. Do not install `pygame` alongside `pygame-ce`; both provide the
 same `pygame` import. Pip fallback files are provided, but uv uses the full dependency lock.
 
-## Drive and inspect
+## Train, test, watch
 
 ```powershell
-& $racePython -m race_trainer doctor
-& $racePython -m race_trainer tracks
-& $racePython -m race_trainer manual --track s_track
-& $racePython -m race_trainer render --track square --output artifacts\square.png
+# 1. Train headlessly on generated tracks (starts training when invoked).
+& $racePython -m race_trainer train --output runs\my-run
+
+# 2. Score the result on tracks it never trained on.
+& $racePython -m race_trainer evaluate --model runs\my-run\best.pt
+
+# 3. Watch it drive an unseen track. Press N for another one.
+& $racePython -m race_trainer watch --model runs\my-run\best.pt
 ```
 
-`doctor` reads package, power, and CUDA metadata without running a benchmark or GPU tensor
-operation. `render` produces a CPU-rendered PNG without a policy or training.
+`train` prints a progress line every 20,000 steps and scores the model on 16 unseen
+validation tracks every 100,000 steps. The weights that finish the most of them are kept
+as `best.pt`; on a tie the newest wins.
+
+`evaluate` drives the three built-in layouts plus 20 generated test layouts and prints a
+table: finish rate, crash rate, progress, lap time, and speed per track, with a column
+saying whether the model trained on that track. It ends with the count of runs finished
+and, for each failure, the `watch` arguments that replay it. Choose your own set with
+`--tracks`:
+
+```powershell
+& $racePython -m race_trainer evaluate --model runs\my-run\best.pt --tracks oval square random:12345
+& $racePython -m race_trainer evaluate --model runs\my-run\best.pt --generated 200 --episodes 2 --output artifacts\report.json
+& $racePython -m race_trainer watch --model runs\my-run\best.pt --track s_track
+```
+
+## Tracks
+
+A track is a built-in name or `random:<seed>`. Every seed is a different, reproducible
+layout: a circuit or a point-to-point sprint with its own width, corners, and direction.
+
+| Tracks | Role |
+| --- | --- |
+| `random:0` to `random:511` | Default training pool (`train --tracks random`) |
+| `random:1000000000` onward | Validation: scored during training to choose `best.pt` |
+| `random:2000000000` onward | Test: used by `evaluate`, `watch`, and the app menu |
+| `oval`, `s_track`, `square` | Hand-built layouts, held out of default training |
+
+```powershell
+& $racePython -m race_trainer tracks
+& $racePython -m race_trainer render --track random:7 --output artifacts\track.png
+& $racePython -m race_trainer manual --track random:2000000003
+```
+
+To train on specific tracks instead, name them: `--tracks oval square`, or mix them with
+the pool: `--tracks random oval`. `evaluate` marks any track the model trained on.
+
+## Training options
+
+Inspect the configuration without constructing an agent or starting a run:
+
+```powershell
+& $racePython -m race_trainer train --dry-run
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--steps` | 1,000,000 | Total environment steps across all cars |
+| `--envs` | 64 | Cars simulated in parallel |
+| `--tracks` | `random` | Training tracks; `random` is the generated pool |
+| `--track-pool` | 512 | Number of generated layouts in the pool |
+| `--device` | `auto` | `auto`, `cuda`, or `cpu` |
+| `--seed` | 42 | Network initialization, exploration, and track order |
+| `--steering-noise` | 0.2 | Steering error added while training, so the car learns to leave a margin |
+| `--eval-every` / `--log-every` | 100,000 / 20,000 | Steps between evaluations / progress lines |
+| `--output` | `runs\<timestamp>` | New run directory; never overwrites |
+| `--json` | off | Print events as JSON lines instead of readable text |
+
+Further flags: `--max-steps`, `--batch-size`, `--learning-rate`, `--learning-starts`,
+`--exploration-steps`, `--eval-episodes`, and `--cpu-threads`.
+
+Each run directory holds:
+
+| File | Contents |
+| --- | --- |
+| `config.json` | Configuration, chosen device, and resume source |
+| `metrics.jsonl` | Progress events: finish/crash rates, loss, exploration, speed |
+| `evaluations.jsonl` | Validation reports, including every episode |
+| `best.pt` | Best validation result so far |
+| `latest.pt` | Latest resumable state |
+
+Use **Stop & save**, close the training monitor, or press Ctrl+C in a training terminal to
+save `latest.pt`. A `stop.request` file in the run directory does the same.
+
+```powershell
+& $racePython -m race_trainer train --resume runs\my-run\latest.pt --steps 2000000 --output runs\my-run-2
+```
+
+`--steps` is the total target, including completed steps. Resume preserves seed, tracks,
+physics, and learning settings and creates a new run directory. Checkpoints contain both
+networks, Adam state, replay, counters, random state, configuration, and the
+observation/action versions. Cars restart on resume; their earlier experience stays in replay.
+
+## Devices and speed
+
+| Option | Behavior |
+| --- | --- |
+| `--device auto` | CUDA when available and Windows reports external power; otherwise CPU |
+| `--device cuda` | The learner uses the NVIDIA GPU; errors clearly if unavailable |
+| `--device cpu` | Everything on the CPU |
+
+`auto` is the default for training. Watching and evaluating default to CPU, which is
+fastest for this small network. The simulator always runs on the CPU.
+
+```powershell
+& $racePython -m race_trainer benchmark
+& $racePython -m race_trainer doctor
+```
+
+`benchmark` takes under a minute. It measures the simulator alone, the learner alone on
+each device, and then the real training loop on each device, and names the fastest.
+`doctor` reads package, power, and CUDA metadata without running any workload.
+
+## Drive it yourself
+
+```powershell
+& $racePython -m race_trainer manual --track s_track
+```
 
 | Control | Action |
 | --- | --- |
@@ -53,102 +175,39 @@ operation. `render` produces a CPU-rendered PNG without a policy or training.
 | Release throttle | Coast |
 | Space | Pause |
 | R | Restart with the same episode seed |
+| N | Switch to the next unseen generated track |
 | Tab | Toggle sensors |
 | Esc | Return to the menu |
 | Enter, after a model episode | Next replay episode / finish replay |
 
-Oval and rounded-square circuits have 12 ordered gates per lap. The S-curve is a sprint
-with six gates and a finish before the road ends. Gates count only in sequence and in the
-correct direction. Speed is measured in simulation units per second.
+Tyres have limited grip: at speed the car cannot turn as sharply, so tight corners need
+braking. Gates count only in sequence and in the correct direction. A sprint's finish line
+sits a braking distance before the end of the road. Speed is in simulation units per second.
 
-## Devices
+## What the model is
 
-**CPU is the default for training and replay.**
+- **Inputs (18):** 15 rays from -90 to +90 degrees, denser toward the front; speed; previous
+  steering; previous throttle.
+- **Outputs (15):** accelerate, coast, or brake, each with one of five steering angles.
+- **Learner:** dueling Double DQN with 3-step returns, Huber loss, and an annealed
+  learning rate. Updates run on the GPU while the CPU simulates the next step.
+- **Reward:** distance travelled along the track, a small penalty for jerky steering, a
+  crash penalty, and a finish bonus.
 
-| Option | Behavior |
-| --- | --- |
-| `--device cpu` | CPU execution; two training threads by default |
-| `--device cuda` | Networks and minibatches use the NVIDIA GPU; errors clearly if unavailable |
-| `--device auto` | CUDA only when available and Windows reports external power; otherwise CPU |
+Crashes and finishes end an episode. Time limits and stalls cut it short without
+pretending the future was worthless. Details are in [architecture](docs/ARCHITECTURE.md)
+and the [reference](docs/REFERENCE.md).
 
-Automatic selection uses the operating system's power report. USB power may count as
-external power; select `cpu` for an unambiguous choice. Explicit `cuda` overrides power
-detection. Automatic selection uses CPU when power status is unknown. Simulation and replay
-storage remain on CPU. No GPU speedup has been measured for this small network.
+## Older models and scripts
 
-## Training, when ready
-
-Inspect the configuration without constructing an agent or starting a run:
-
-```powershell
-& $racePython -m race_trainer train --dry-run --device cpu
-```
-
-The following command **starts training** when invoked:
-
-```powershell
-& $racePython -m race_trainer train --episodes 1000 --tracks oval s_track square --device cuda
-```
-
-Desktop setup trains on the selected track. The CLI defaults to all three in a balanced
-rotation. Tracks and physics are saved with the run. Options include `--seed`, `--max-steps`,
-`--batch-size`, `--learning-rate`, `--learning-starts`, `--exploration-steps`, `--eval-every`,
-`--eval-episodes`, `--save-every`, and `--cpu-threads`. `--render-every 25` shows one episode
-every 25; the default is headless.
-
-Each run gets a new directory under `runs/`. An explicit `--output` must also name a new directory.
-
-| File | Contents |
-| --- | --- |
-| `config.json` | Configuration, chosen device, and resume source |
-| `metrics.jsonl` | Episode rewards, loss, exploration, steps, and finish reasons |
-| `evaluations.jsonl` | Per-track evaluation summaries and individual episode results |
-| `best.pt` | Best fixed-seed evaluation result |
-| `latest.pt` | Periodic and final resume state |
-
-Use **Stop & save**, close the training monitor, or press Ctrl+C in a training terminal to
-save `latest.pt`. A `stop.request` file is checked between environment steps. If stopped
-mid-episode, resume restarts that episode and retains experience already in replay.
-
-```powershell
-& $racePython -m race_trainer train --resume runs\YOUR_RUN\latest.pt --episodes 2000 --device cuda
-```
-
-`--episodes` is the total target, including completed episodes. Resume preserves seed, tracks,
-physics, and learning settings and creates a new run directory. Checkpoints contain both
-networks, Adam state, replay, counters, random state, configuration, and observation/action
-versions. Saves replace files atomically.
-
-## Watch and evaluate
-
-```powershell
-& $racePython -m race_trainer watch --model runs\YOUR_RUN\best.pt
-& $racePython -m race_trainer watch --model runs\YOUR_RUN\best.pt --track square
-& $racePython -m race_trainer evaluate --model runs\YOUR_RUN\best.pt --tracks oval s_track square --episodes 10 --output artifacts\evaluation.json
-```
-
-Replay defaults to the saved track and physics. The menu uses its visibly selected track
-with the checkpoint's physics. Greedy evaluation reports completion/crash rates, checkpoint
-fraction, reward mean/deviation, and successful finish time. These three fixed layouts and
-seeded starting variations do not establish generalization to arbitrary unseen circuits.
-
-## What changed
-
-- Nine wall sensors, speed, relative lookahead heading, and lateral offset: 13 normalized inputs.
-- Nine actions: accelerate/coast/brake crossed with left/straight/right.
-- Bicycle-style turning, drag, fixed simulation steps, directed gates, and progress rewards.
-- Vectorized raycasts and cached geometry shared by rendering, sensors, and collisions.
-- Double DQN, Huber loss, gradient clipping, and exploration paced by environment steps.
-- Truncation ends a rollout while retaining the Bellman bootstrap.
-- One training loop, one CLI, and a responsive desktop monitor with a background process.
-
-Your original `best_race_model.pth` is preserved. Its seven-input weights are incompatible
-with the changed sensors, actions, and physics. Version 2 rejects it with an explanation.
+Your original `best_race_model.pth` is preserved and still rejected: its seven inputs match
+no later version. Version 2 checkpoints are also rejected, because they relied on centerline
+guidance the car no longer receives. Train a version 3 model instead; it takes minutes.
 The recovered original code is committed at `c940c81` for historical comparisons.
 
 Old script names are adapters: `main.py`, `simple_main.py`, and `debug_main.py` open the
 menu; training scripts without arguments print help. `watch_model.py` and
-`test_generalization.py` use version 2 checkpoints. `quick_test.py` reads diagnostics.
+`test_generalization.py` forward to `watch` and `evaluate`. `quick_test.py` reads diagnostics.
 
 ## Development
 
@@ -159,24 +218,19 @@ menu; training scripts without arguments print help. `watch_model.py` and
 ```
 
 The default suite forces CPU operation, blocks backpropagation and Adam updates, and skips
-GPU tests. It covers track finishes using fixed arithmetic steering, geometry, Gymnasium
-contracts, seeded resets, Double DQN targets, replay/checkpoint restoration, device selection,
-startup, rendering, and a mocked monitor process. CI runs these CPU checks on Windows and Linux.
+GPU tests. It covers track generation, geometry, agreement between one car and many,
+Gymnasium contracts, n-step replay, checkpoints, the headless loop with learning switched
+off, the CLI, and the desktop monitor with a fake child process. CI runs these CPU checks
+on Windows and Linux.
 
-To explicitly run the bounded CUDA checks on a machine with the CUDA runtime installed:
+To run the bounded CUDA checks on a machine with the CUDA runtime installed:
 
 ```powershell
-& $racePython -m pytest -q -m gpu --run-gpu --junitxml=artifacts\gpu-validation.xml
+& $racePython -m pytest -q -m gpu --run-gpu
 ```
 
-These six checks execute GPU inference, backpropagation, Adam updates, target synchronization,
-CPU/CUDA checkpoint restoration, CLI stop/resume, and a real desktop training subprocess.
-Integration runs are limited to 24-40 steps per episode and write disposable models under
-pytest's temporary directory. They verify the learning pipeline; they do not produce a
-trained driver or measure whether CUDA is faster than CPU. CUDA checks fail if explicitly
-requested without a working GPU.
-
-See [architecture](docs/ARCHITECTURE.md) and [validation record](docs/VALIDATION.md).
+These execute real GPU learning in tiny disposable runs. They verify the pipeline; they do
+not produce a trained driver. See [development](docs/DEVELOPMENT.md).
 
 References: [Gymnasium time limits](https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/),
 [PyTorch installation](https://pytorch.org/get-started/locally/), and [pygame-ce](https://pyga.me/docs/).
