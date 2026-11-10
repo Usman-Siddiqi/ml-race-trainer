@@ -97,7 +97,7 @@ class RaceRenderer:
         screen.fill(BG)
         text(screen, "RACE LAB", (24, 19), 35, bold=True)
         text(screen, mode_label, (25, 66), 13, ACCENT, True)
-        text(screen, TRACK_LABELS[env.track.name], (840, 33), 20, bold=True)
+        text(screen, env.track.label, (840, 33), 20, bold=True)
         text(screen, "SPRINT" if not env.track.closed else "CIRCUIT", (840, 65), 12, MUTED, True)
         if self._track is not env.track:
             self._track, self._layer = env.track, track_layer(env.track)

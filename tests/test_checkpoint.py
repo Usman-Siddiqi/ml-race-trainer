@@ -3,8 +3,15 @@ import pytest
 import torch
 
 from race_trainer.agent import DQNAgent
-from race_trainer.checkpoint import load_checkpoint, load_policy, save_checkpoint
-from race_trainer.config import OBSERVATION_SIZE, AgentConfig, EnvConfig, TrainConfig
+from race_trainer.checkpoint import FORMAT_VERSION, load_checkpoint, load_policy, save_checkpoint
+from race_trainer.config import (
+    ACTION_VERSION,
+    OBSERVATION_SIZE,
+    OBSERVATION_VERSION,
+    AgentConfig,
+    EnvConfig,
+    TrainConfig,
+)
 
 
 def test_checkpoint_roundtrip_restores_training_state_without_training(tmp_path):
@@ -119,9 +126,9 @@ def test_missing_agent_state_is_a_clear_error(tmp_path):
     path = tmp_path / "broken.pt"
     torch.save(
         {
-            "format_version": 2,
-            "observation_version": 2,
-            "action_version": 2,
+            "format_version": FORMAT_VERSION,
+            "observation_version": OBSERVATION_VERSION,
+            "action_version": ACTION_VERSION,
             "env_config": {},
             "train_config": {},
             "agent": {},
