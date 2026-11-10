@@ -16,6 +16,10 @@ GENERATOR_VERSION = 1
 _FAR = 1e9
 
 
+SPRINT_RUNOFF = 100.0
+_RAYCAST_ELEMENTS = 80_000
+
+
 def _cross(a, b):
     return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
 
@@ -25,17 +29,32 @@ def batch_raycast(wall_starts, wall_vectors, origins, directions, max_distance):
 
     Shapes: walls (N, W, 2), origins (N, 2), directions (N, R, 2). Returns (N, R).
     """
-    ray_x, ray_y = directions[:, :, 0, None], directions[:, :, 1, None]
-    wall_x, wall_y = wall_vectors[:, None, :, 0], wall_vectors[:, None, :, 1]
-    relative = wall_starts - origins[:, None, :]
-    relative_x, relative_y = relative[:, None, :, 0], relative[:, None, :, 1]
-    denominator = ray_x * wall_y - ray_y * wall_x
-    parallel = np.abs(denominator) <= 1e-10
-    safe = np.where(parallel, 1.0, denominator)
-    ray_t = (relative_x * wall_y - relative_y * wall_x) / safe
-    wall_t = (relative_x * ray_y - relative_y * ray_x) / safe
-    valid = ~parallel & (ray_t >= 0) & (wall_t >= 0) & (wall_t <= 1)
-    return np.minimum(np.min(np.where(valid, ray_t, np.inf), axis=2), max_distance)
+    # This is the simulator's hot loop. Environments are processed in cache-sized slices
+    # and temporaries are reused; each element sees the same arithmetic in any batch.
+    count, rays, walls = len(origins), directions.shape[1], wall_starts.shape[1]
+    result = np.empty((count, rays))
+    size = max(1, _RAYCAST_ELEMENTS // (rays * walls))
+    for first in range(0, count, size):
+        part = slice(first, first + size)
+        ray_x, ray_y = directions[part, :, 0, None], directions[part, :, 1, None]
+        wall_x, wall_y = wall_vectors[part, None, :, 0], wall_vectors[part, None, :, 1]
+        relative = wall_starts[part] - origins[part, None, :]
+        relative_x, relative_y = relative[:, None, :, 0], relative[:, None, :, 1]
+        denominator = ray_x * wall_y
+        scratch = ray_y * wall_x
+        denominator -= scratch
+        miss = np.abs(denominator, out=scratch) <= 1e-10
+        denominator[miss] = 1.0
+        ray_t = (relative_x * wall_y - relative_y * wall_x) / denominator
+        wall_t = np.multiply(relative_x, ray_y, out=scratch)
+        wall_t -= relative_y * ray_x
+        wall_t /= denominator
+        miss |= ray_t < 0
+        miss |= wall_t < 0
+        miss |= wall_t > 1
+        ray_t[miss] = np.inf
+        result[part] = ray_t.min(axis=2)
+    return np.minimum(result, max_distance, out=result)
 
 
 def batch_on_road(wall_starts, wall_end_y, wall_slopes, points):
@@ -126,8 +145,11 @@ class Track:
         self.wall_end_y = wall_ends[:, 1].copy()
         rise = self.wall_vectors[:, 1]
         self.wall_slopes = self.wall_vectors[:, 0] / np.where(np.abs(rise) > 1e-12, rise, 1.0)
+        # A sprint ends in a wall. Its finish line sits a braking distance before that wall:
+        # a car that reads only its sensors cannot tell a finish from a dead end, so it
+        # must be able to cross the line at speed and still have road left.
         self.start_distance = 0.0 if closed else 25.0
-        self.finish_distance = self.length if closed else self.length - 25.0
+        self.finish_distance = self.length if closed else self.length - SPRINT_RUNOFF
         distances = np.linspace(self.start_distance, self.finish_distance, checkpoint_count + 1)[1:]
         self.gate_distances = distances
         self.gates = tuple(Gate(*self.sample(s), float(s)) for s in distances)
@@ -351,7 +373,7 @@ def generate_track(seed):
     name = f"random:{seed}"
     if rng.random() < 0.2:
         # A sprint is an open stretch of a valid loop, so it is valid as well.
-        keep = int(len(loop) * rng.uniform(0.45, 0.75))
+        keep = int(len(loop) * rng.uniform(0.5, 0.8))
         return Track(name, loop[: keep + 1], half_width, False, max(3, round(keep / 9)))
     return Track(name, loop, half_width, True, max(6, round(len(loop) / 9)))
 

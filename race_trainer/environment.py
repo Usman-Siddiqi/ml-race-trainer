@@ -119,3 +119,51 @@ class RaceCarEnv(gym.Env):
         if self._renderer is not None:
             self._renderer.close()
             self._renderer = None
+
+
+class VectorRaceEnv:
+    """Many cars for headless training. A finished car restarts on a freshly drawn track."""
+
+    def __init__(self, config, tracks, count, seed=0, *, random_position=True):
+        self.config, self.count = config, count
+        self.track_names = tuple(tracks)
+        if not self.track_names:
+            raise ValueError("Training needs at least one track")
+        self.random_position = random_position
+        self.rng = np.random.default_rng(seed)
+        self.sim = RaceSim(config, count)
+
+    def _restart(self, index):
+        name = self.track_names[int(self.rng.integers(len(self.track_names)))]
+        self.sim.reset_env(index, make_track(name), self.rng, random_position=self.random_position)
+
+    def reset(self):
+        for index in range(self.count):
+            self._restart(index)
+        return self.sim.observe()
+
+    def step(self, actions):
+        """Returns (observations, rewards, terminated, truncated, next_observations, episodes).
+
+        ``next_observations`` are the true successors, including final ones, for replay.
+        ``observations`` are what to act on next: restarted cars see their new track.
+        ``episodes`` summarizes the cars that just ended, or is None.
+        """
+        sim = self.sim
+        rewards, terminated, truncated = sim.step(actions)
+        successors = sim.observe()
+        ended = np.flatnonzero(terminated | truncated)
+        if not len(ended):
+            return successors, rewards, terminated, truncated, successors, None
+        episodes = {
+            "progress": sim.progress()[ended],
+            "completed": sim.completed[ended].copy(),
+            "crashed": sim.crashed[ended].copy(),
+            "reward": sim.episode_reward[ended].copy(),
+            "steps": sim.steps[ended].copy(),
+        }
+        for index in ended:
+            self._restart(index)
+        observations = successors.copy()
+        observations[ended] = sim.observe(ended)
+        return observations, rewards, terminated, truncated, successors, episodes

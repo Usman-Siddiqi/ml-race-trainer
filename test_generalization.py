@@ -1,12 +1,12 @@
-"""Compatibility launcher for the unified evaluate command."""
+"""Compatibility launcher for the unified evaluate command.
+
+With only --model it scores the checkpoint on the built-in layouts plus generated
+tracks that were never used in training.
+"""
 
 import sys
 
 from race_trainer.cli import main
-from race_trainer.config import TRACK_NAMES
 
 if __name__ == "__main__":
-    arguments = sys.argv[1:]
-    if arguments and "--tracks" not in arguments:
-        arguments += ["--tracks", *TRACK_NAMES]
-    raise SystemExit(main(["evaluate", *(arguments or ["--help"])]))
+    raise SystemExit(main(["evaluate", *(sys.argv[1:] or ["--help"])]))

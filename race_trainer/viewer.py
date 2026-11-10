@@ -2,6 +2,7 @@
 
 import pygame
 
+from .config import TEST_SEED_BASE, track_seed
 from .environment import RaceCarEnv
 from .rendering import RaceRenderer
 
@@ -28,6 +29,13 @@ def play(env_config, policy=None, *, seed=42, episodes=1):
                     elif event.key == pygame.K_TAB:
                         renderer.show_sensors = not renderer.show_sensors
                     elif event.key == pygame.K_r:
+                        observation, _ = env.reset(seed=seed + episode)
+                        paused = False
+                    elif event.key == pygame.K_n:
+                        # Step through generated layouts that training never uses.
+                        current = track_seed(env.track.name)
+                        following = TEST_SEED_BASE if current is None else current + 1
+                        env.set_track(f"random:{following}")
                         observation, _ = env.reset(seed=seed + episode)
                         paused = False
                     elif event.key == pygame.K_RETURN and env._finished and policy is not None:

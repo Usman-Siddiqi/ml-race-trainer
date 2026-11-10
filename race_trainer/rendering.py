@@ -18,7 +18,6 @@ MUTED = (143, 164, 177)
 ACCENT = (74, 220, 194)
 ORANGE = (255, 177, 88)
 RED = (248, 117, 115)
-TRACK_LABELS = {"oval": "Oval circuit", "s_track": "S-curve sprint", "square": "Rounded square"}
 
 _fonts = {}
 
@@ -149,7 +148,7 @@ class RaceRenderer:
             screen.blit(hint, hint.get_rect(center=(424, 423)))
         text(
             screen,
-            "SPACE  Pause     R  Restart     TAB  Sensors     ESC  Return",
+            "SPACE  Pause    R  Restart    TAB  Sensors    N  New track    ESC  Return",
             (25, 726),
             14,
             MUTED,

@@ -62,6 +62,17 @@ def choose_device(requested="auto"):
     return DeviceChoice("cpu", "Auto selected CPU: CUDA is unavailable")
 
 
+def default_cpu_threads(device="cpu"):
+    """PyTorch CPU threads when none are requested.
+
+    On CUDA the CPU only drives the cars and feeds batches. A CPU learner uses the
+    physical cores for its large batches; the simulator runs between updates.
+    """
+    import os
+
+    return 2 if device == "cuda" else max(1, min(8, (os.cpu_count() or 2) // 2))
+
+
 def diagnostics():
     """Read metadata only; this never allocates a GPU tensor or runs a benchmark."""
     import importlib.metadata

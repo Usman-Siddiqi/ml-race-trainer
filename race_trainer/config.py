@@ -14,7 +14,7 @@ TEST_SEED_BASE = 2_000_000_000
 MAX_TRACK_SEED = 2**31 - 1
 
 OBSERVATION_VERSION = 3
-ACTION_VERSION = 2
+ACTION_VERSION = 3
 # Car-mounted inputs only: wall-distance rays, speed, and the previous controls.
 SENSOR_ANGLES_DEGREES = (-90, -70, -50, -35, -22, -13, -6, 0, 6, 13, 22, 35, 50, 70, 90)
 OBSERVATION_SIZE = len(SENSOR_ANGLES_DEGREES) + 3
@@ -120,31 +120,45 @@ class EnvConfig:
 
 @dataclass(frozen=True)
 class AgentConfig:
-    hidden_size: int = 128
+    hidden_size: int = 256
     learning_rate: float = 0.0003
     gamma: float = 0.99
-    batch_size: int = 128
-    replay_capacity: int = 50000
-    learning_starts: int = 2000
-    train_every: int = 4
-    target_update_every: int = 1000
+    n_step: int = 3
+    batch_size: int = 2048
+    replay_capacity: int = 400_000
+    learning_starts: int = 20_000
+    train_every: int = 64
+    target_update_every: int = 100
     epsilon_start: float = 1.0
-    epsilon_end: float = 0.05
-    exploration_steps: int = 100000
+    epsilon_end: float = 0.004
+    epsilon_spread: float = 15.0
+    exploration_steps: int = 300_000
+    exploration_hold: int = 4
+    actor_sync_every: int = 4
     gradient_clip: float = 10.0
 
     def __post_init__(self):
-        for key in ("learning_rate", "gamma", "epsilon_start", "epsilon_end", "gradient_clip"):
+        for key in (
+            "learning_rate",
+            "gamma",
+            "epsilon_start",
+            "epsilon_end",
+            "epsilon_spread",
+            "gradient_clip",
+        ):
             if not math.isfinite(getattr(self, key)):
                 raise ValueError(f"{key} must be finite")
         for key in (
             "hidden_size",
+            "n_step",
             "batch_size",
             "replay_capacity",
             "learning_starts",
             "train_every",
             "target_update_every",
             "exploration_steps",
+            "exploration_hold",
+            "actor_sync_every",
         ):
             if getattr(self, key) < 1:
                 raise ValueError(f"{key} must be positive")
@@ -152,31 +166,55 @@ class AgentConfig:
             raise ValueError("Replay capacity must hold at least one batch")
         if not 0 <= self.epsilon_end <= self.epsilon_start <= 1:
             raise ValueError("Expected 0 <= epsilon_end <= epsilon_start <= 1")
+        if self.epsilon_spread < 1 or self.epsilon_end * self.epsilon_spread > 1:
+            raise ValueError("epsilon_spread must be >= 1 and keep every epsilon within 0..1")
         if not 0 <= self.gamma <= 1 or self.learning_rate <= 0 or self.gradient_clip <= 0:
             raise ValueError("Invalid optimizer parameters")
 
 
 @dataclass(frozen=True)
 class TrainConfig:
-    episodes: int = 1000
-    tracks: tuple[str, ...] = TRACK_NAMES
+    total_steps: int = 1_000_000
+    num_envs: int = 64
+    tracks: tuple[str, ...] = (RANDOM_POOL,)
+    track_pool: int = 512
+    eval_tracks: tuple[str, ...] = validation_tracks()
     seed: int = 42
-    eval_every: int = 25
-    eval_episodes: int = 5
-    save_every: int = 100
-    device: str = "cpu"
-    cpu_threads: int = 2
+    eval_every: int = 100_000
+    eval_episodes: int = 1
+    log_every: int = 20_000
+    device: str = "auto"
+    cpu_threads: int = 0
 
     def __post_init__(self):
         object.__setattr__(self, "tracks", tuple(dict.fromkeys(self.tracks)))
-        if not self.tracks:
-            raise ValueError("Choose at least one track")
+        object.__setattr__(self, "eval_tracks", tuple(dict.fromkeys(self.eval_tracks)))
+        if not self.tracks or not self.eval_tracks:
+            raise ValueError("Choose at least one training track and one evaluation track")
         for spec in self.tracks:
+            check_track(spec, allow_pool=True)
+        for spec in self.eval_tracks:
             check_track(spec)
-        for key in ("episodes", "eval_every", "eval_episodes", "save_every", "cpu_threads"):
+        for key in (
+            "total_steps",
+            "num_envs",
+            "track_pool",
+            "eval_every",
+            "eval_episodes",
+            "log_every",
+        ):
             if getattr(self, key) < 1:
                 raise ValueError(f"{key} must be positive")
-        if self.seed < 0:
-            raise ValueError("seed must be nonnegative")
+        if self.track_pool > VALIDATION_SEED_BASE:
+            raise ValueError("track_pool would overlap the held-out validation seeds")
+        if self.seed < 0 or self.cpu_threads < 0:
+            raise ValueError("seed and cpu_threads must be nonnegative (0 threads = automatic)")
         if self.device not in ("auto", "cpu", "cuda"):
             raise ValueError("device must be auto, cpu, or cuda")
+
+    def training_specs(self):
+        """Expand the generated pool into explicit specs, e.g. random:0..random:511."""
+        specs = []
+        for spec in self.tracks:
+            specs.extend(generated_tracks(0, self.track_pool) if spec == RANDOM_POOL else [spec])
+        return tuple(dict.fromkeys(specs))

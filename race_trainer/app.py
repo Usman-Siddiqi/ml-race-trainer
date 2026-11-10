@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pygame
 
-from .config import TRACK_NAMES, EnvConfig
+from .config import TEST_SEED_BASE, TRACK_NAMES, EnvConfig, TrainConfig, generated_tracks
 from .rendering import (
     ACCENT,
     BG,
@@ -22,13 +22,16 @@ from .rendering import (
     PANEL,
     SIZE,
     TEXT,
-    TRACK_LABELS,
     button,
     font,
     text,
     track_layer,
 )
 from .tracks import make_track
+
+# The menu offers the built-in layouts and a few generated ones. None are trained on.
+MENU_TRACKS = TRACK_NAMES + generated_tracks(TEST_SEED_BASE, 9)
+STEP_INCREMENT = 250_000
 
 
 class RaceApp:
@@ -40,15 +43,15 @@ class RaceApp:
         self.track_index = 0
         self.device_index = 0
         self.devices = ("cpu", "auto", "cuda")
-        self.episodes = 1000
+        self.steps = TrainConfig().total_steps
         self.mode = "menu"
         self.running = True
         self.message = "Choose a circuit, then take the wheel."
         self.model_path = None
         self.process = None
         self.events = queue.Queue()
-        self.rewards = deque(maxlen=180)
-        self.last_episode = {}
+        self.progress = deque(maxlen=180)
+        self.last_progress = {}
         self.last_evaluation = {}
         self.output = None
         self.stop_requested = self.closing = False
@@ -57,7 +60,11 @@ class RaceApp:
 
     @property
     def track_name(self):
-        return TRACK_NAMES[self.track_index]
+        return MENU_TRACKS[self.track_index]
+
+    @property
+    def track_label(self):
+        return make_track(self.track_name).label
 
     @property
     def busy(self):
@@ -90,13 +97,13 @@ class RaceApp:
 
     def click(self, action):
         if action == "track":
-            self.track_index = (self.track_index + 1) % len(TRACK_NAMES)
+            self.track_index = (self.track_index + 1) % len(MENU_TRACKS)
         elif action == "device":
             self.device_index = (self.device_index + 1) % len(self.devices)
         elif action == "fewer":
-            self.episodes = max(25, self.episodes - 100)
+            self.steps = max(STEP_INCREMENT, self.steps - STEP_INCREMENT)
         elif action == "more":
-            self.episodes += 100
+            self.steps += STEP_INCREMENT
         elif action == "setup":
             self.mode = "setup"
             self.message = "Review the session settings, then start when ready."
@@ -125,7 +132,7 @@ class RaceApp:
             root.withdraw()
             try:
                 selected = askopenfilename(
-                    title="Choose a version 2 racing model",
+                    title="Choose a version 3 racing model",
                     initialdir=str(Path("runs").resolve()),
                     filetypes=[("PyTorch checkpoints", "*.pt *.pth")],
                 )
@@ -141,12 +148,7 @@ class RaceApp:
 
             policy, payload = load_policy(selected, "cpu")
             self.model_path = Path(selected)
-            config = EnvConfig(**payload["env_config"])
-            config = replace(
-                config,
-                track=self.track_name,
-                laps=1 if self.track_name == "s_track" else config.laps,
-            )
+            config = replace(EnvConfig(**payload["env_config"]), track=self.track_name, laps=1)
             self.running = not play(config, policy)
             if self.running:
                 self._restore_display()
@@ -163,14 +165,13 @@ class RaceApp:
             "-m",
             "race_trainer",
             "train",
-            "--episodes",
-            str(self.episodes),
-            "--tracks",
-            self.track_name,
+            "--steps",
+            str(self.steps),
             "--device",
             self.devices[self.device_index],
             "--output",
             str(self.output),
+            "--json",
         ]
         environment = {
             **os.environ,
@@ -190,8 +191,8 @@ class RaceApp:
             env=environment,
             creationflags=creationflags,
         )
-        self.rewards.clear()
-        self.last_episode, self.last_evaluation = {}, {}
+        self.progress.clear()
+        self.last_progress, self.last_evaluation = {}, {}
         self.latest_event = None
         self.stop_requested = False
         self.mode = "monitor"
@@ -231,9 +232,9 @@ class RaceApp:
             self.latest_event = event.get("event")
             if self.latest_event == "started":
                 self.message = event["reason"]
-            elif self.latest_event == "episode":
-                self.last_episode = event
-                self.rewards.append(event["reward"])
+            elif self.latest_event == "progress":
+                self.last_progress = event
+                self.progress.append(event["mean_progress"])
             elif self.latest_event == "evaluation":
                 self.last_evaluation = event["summary"]
             elif self.latest_event in ("finished", "stopped"):
@@ -275,7 +276,7 @@ class RaceApp:
         screen = self.screen
         screen.fill(BG)
         text(screen, "RACE LAB", (24, 21), 43, bold=True)
-        text(screen, "ML RACE TRAINER   /   VERSION 2", (27, 80), 13, ACCENT, True)
+        text(screen, "ML RACE TRAINER   /   VERSION 3", (27, 80), 13, ACCENT, True)
         state = "TRAINING" if self.busy else "READY"
         text(screen, state, (1040, 42), 14, ORANGE if self.busy else ACCENT, True)
         pygame.draw.rect(screen, PANEL, (840, 122, 296, 590), border_radius=12)
@@ -292,7 +293,7 @@ class RaceApp:
                 True,
             )
         labels = {
-            "track": TRACK_LABELS[self.track_name] + "  ›",
+            "track": self.track_label + "  ›",
             "drive": "Drive manually",
             "watch": "Watch saved model",
             "setup": "Set up training",
@@ -314,11 +315,11 @@ class RaceApp:
             )
         if self.mode == "setup":
             text(screen, "COMPUTE", (856, 231), 12, MUTED, True)
-            text(screen, "EPISODES", (856, 329), 12, MUTED, True)
-            number = font(23, True).render(str(self.episodes), True, TEXT)
+            text(screen, "TRAINING STEPS", (856, 329), 12, MUTED, True)
+            number = font(23, True).render(f"{self.steps:,}", True, TEXT)
             screen.blit(number, number.get_rect(center=(988, 377)))
-            text(screen, "Auto uses CPU on battery.", (856, 419), 14, MUTED)
-            text(screen, "CUDA can be chosen explicitly.", (856, 440), 14, MUTED)
+            text(screen, "Trains on generated tracks, so", (856, 411), 14, MUTED)
+            text(screen, "every layout shown here is unseen.", (856, 431), 14, MUTED)
         elif self.mode == "menu":
             text(screen, "Explore the circuit by hand,", (856, 477), 15, MUTED)
             text(screen, "or replay a saved driver.", (856, 501), 15, MUTED)
@@ -329,7 +330,7 @@ class RaceApp:
             text(screen, line, (856, 611 + 20 * i), 13, MUTED)
         text(
             screen,
-            "W A S D / ARROWS  Drive     SPACE  Pause     R  Restart     TAB  Sensors",
+            "W A S D / ARROWS  Drive   SPACE  Pause   R  Restart   TAB  Sensors   N  New track",
             (25, 726),
             14,
             MUTED,
@@ -341,7 +342,7 @@ class RaceApp:
             self._preview_track = make_track(self.track_name)
             self._preview = track_layer(self._preview_track)
         self.screen.blit(self._preview, (24, 112))
-        text(self.screen, TRACK_LABELS[self.track_name], (47, 132), 24, bold=True)
+        text(self.screen, self.track_label, (47, 132), 24, bold=True)
         track = self._preview_track
         description = (
             f"{len(track.gates)} gates  /  {'one lap' if track.closed else 'point-to-point sprint'}"
@@ -359,26 +360,24 @@ class RaceApp:
         screen = self.screen
         pygame.draw.rect(screen, PANEL, (24, 122, 800, 590), border_radius=12)
         text(screen, "Training progress", (48, 145), 28, bold=True)
-        text(screen, "EPISODE REWARD", (49, 213), 13, MUTED, True)
+        text(screen, "AVERAGE TRACK COMPLETED WHILE EXPLORING", (49, 213), 13, MUTED, True)
         chart = pygame.Rect(56, 264, 730, 306)
         for i in range(5):
             y = chart.y + chart.height * i // 4
             pygame.draw.line(screen, (42, 57, 72), (chart.x, y), (chart.right, y))
-        if len(self.rewards) > 1:
-            low, high = min(self.rewards), max(self.rewards)
-            span = max(1.0, high - low)
+        if len(self.progress) > 1:
             points = [
                 (
-                    chart.x + i * chart.width / (len(self.rewards) - 1),
-                    chart.bottom - (value - low) / span * chart.height,
+                    chart.x + i * chart.width / (len(self.progress) - 1),
+                    chart.bottom - min(1.0, value) * chart.height,
                 )
-                for i, value in enumerate(self.rewards)
+                for i, value in enumerate(self.progress)
             ]
             pygame.draw.lines(screen, ACCENT, False, points, 2)
-            text(screen, f"{high:.1f}", (chart.x, chart.y - 24), 14, MUTED)
-            text(screen, f"{low:.1f}", (chart.x, chart.bottom + 10), 14, MUTED)
+            text(screen, "100%", (chart.x, chart.y - 24), 14, MUTED)
+            text(screen, "0%", (chart.x, chart.bottom + 10), 14, MUTED)
         else:
-            text(screen, "Waiting for the first completed episodes…", (190, 405), 21, MUTED)
+            text(screen, "Waiting for the first progress report...", (205, 405), 21, MUTED)
         text(
             screen,
             "Stop safely, then continue from your latest checkpoint.",
@@ -387,19 +386,20 @@ class RaceApp:
             MUTED,
         )
         text(screen, "SESSION STATUS", (856, 139), 13, ACCENT, True)
-        episode = self.last_episode.get("episode", 0)
-        text(screen, f"{episode} / {self.episodes}", (856, 178), 34, bold=True)
-        text(screen, "completed episodes", (856, 229), 15, MUTED)
-        progress = min(1.0, episode / self.episodes)
+        steps = self.last_progress.get("steps", 0)
+        text(screen, f"{steps / self.steps:.0%}", (856, 178), 34, bold=True)
+        text(screen, f"{steps:,} of {self.steps:,} steps", (856, 229), 15, MUTED)
+        progress = min(1.0, steps / self.steps)
         pygame.draw.rect(screen, (42, 57, 72), (856, 274, 264, 6), border_radius=3)
         pygame.draw.rect(screen, ACCENT, (856, 274, int(progress * 264), 6), border_radius=3)
-        loss = self.last_episode.get("loss")
+        loss = self.last_progress.get("loss")
         completion = self.last_evaluation.get("completion_rate")
+        speed = self.last_progress.get("steps_per_second")
         rows = [
-            ("Exploration", f"{self.last_episode.get('epsilon', 1):.1%}"),
+            ("Exploration", f"{self.last_progress.get('epsilon', 1):.1%}"),
             ("Loss", f"{loss:.4f}" if loss is not None else "warming up"),
-            ("Eval finishes", f"{completion:.0%}" if completion is not None else "pending"),
-            ("Track", self.last_episode.get("track", self.track_name)),
+            ("Unseen-track finishes", f"{completion:.0%}" if completion is not None else "pending"),
+            ("Speed", f"{speed:,.0f} steps/s" if speed else "pending"),
         ]
         for i, (label, value) in enumerate(rows):
             text(screen, label, (856, 310 + i * 49), 15, MUTED)
