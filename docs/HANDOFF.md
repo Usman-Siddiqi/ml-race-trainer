@@ -75,12 +75,17 @@ available, otherwise CPU. No AMD NPU execution path is implemented.
 
 ## The everyday loop
 
+`race.cmd` in the repository root runs any command with the installed environment, so
+these work in a fresh terminal opened in this folder:
+
 ```powershell
-& $racePython -m race_trainer train --output runs\my-run
-& $racePython -m race_trainer evaluate --model runs\my-run\best.pt
-& $racePython -m race_trainer watch --model runs\my-run\best.pt
-& $racePython -m race_trainer benchmark
+.\race train --output runs\my-run
+.\race evaluate --model runs\my-run\best.pt
+.\race watch --model runs\my-run\best.pt
+.\race benchmark
 ```
+
+`runs\v3-default\best.pt` is an already trained model on this machine.
 
 ## Files that Git does not carry
 

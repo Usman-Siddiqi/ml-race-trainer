@@ -83,6 +83,18 @@ def test_tracks_command_explains_the_held_out_seed_ranges(capsys):
     assert "random:0 .. random:511" in output and f"random:{TEST_SEED_BASE}+" in output
 
 
+@pytest.mark.parametrize("command", ["watch", "evaluate"])
+def test_missing_model_lists_the_models_that_exist(command, monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main([command, "--model", "runs/missing/best.pt"]) == 2
+    assert "train --output" in capsys.readouterr().err
+    (tmp_path / "runs" / "found").mkdir(parents=True)
+    (tmp_path / "runs" / "found" / "best.pt").write_bytes(b"")
+    assert cli.main([command, "--model", "runs/missing/best.pt"]) == 2
+    error = capsys.readouterr().err
+    assert "Model not found" in error and "found" in error and "best.pt" in error
+
+
 @pytest.mark.parametrize("track", ["oval", "s_track", "square", "random:1", "random:3"])
 def test_offscreen_frame_has_expected_dimensions(track):
     env = RaceCarEnv(EnvConfig(track=track), render_mode="rgb_array")

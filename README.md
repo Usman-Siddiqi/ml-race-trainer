@@ -31,10 +31,14 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed.
 # Install NVIDIA CUDA support. Setup runs no GPU workload or training.
 powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Device cuda
 
-# Double-click Launch Race Lab.cmd, or:
-$racePython = Join-Path $env:LOCALAPPDATA 'RaceTrainer\venv\Scripts\python.exe'
-& $racePython -m race_trainer app
+# Double-click Launch Race Lab.cmd, or from this folder:
+.\race app
 ```
+
+`race.cmd` runs any command below with the installed environment, so nothing needs to be
+set up in the terminal first. Run it from this folder (relative paths such as `runs\...`
+are resolved here). The equivalent long form is
+`& "$env:LOCALAPPDATA\RaceTrainer\venv\Scripts\python.exe" -m race_trainer <command>`.
 
 Use `-Device cpu` for a smaller CPU-only installation. Setup uses Python 3.12 and `uv.lock`.
 Its environment lives under `%LOCALAPPDATA%\RaceTrainer\venv`, so large Python/CUDA files
@@ -49,14 +53,17 @@ same `pygame` import. Pip fallback files are provided, but uv uses the full depe
 
 ```powershell
 # 1. Train headlessly on generated tracks (starts training when invoked).
-& $racePython -m race_trainer train --output runs\my-run
+.\race train --output runs\my-run
 
 # 2. Score the result on tracks it never trained on.
-& $racePython -m race_trainer evaluate --model runs\my-run\best.pt
+.\race evaluate --model runs\my-run\best.pt
 
 # 3. Watch it drive an unseen track. Press N for another one.
-& $racePython -m race_trainer watch --model runs\my-run\best.pt
+.\race watch --model runs\my-run\best.pt
 ```
+
+`runs\my-run` exists only after step 1. If a model path is wrong, `watch` and `evaluate`
+list the `runs\*\best.pt` files that do exist.
 
 `train` prints a progress line every 20,000 steps and scores the model on 16 unseen
 validation tracks every 100,000 steps. The weights that finish the most of them are kept
@@ -69,9 +76,9 @@ and, for each failure, the `watch` arguments that replay it. Choose your own set
 `--tracks`:
 
 ```powershell
-& $racePython -m race_trainer evaluate --model runs\my-run\best.pt --tracks oval square random:12345
-& $racePython -m race_trainer evaluate --model runs\my-run\best.pt --generated 200 --episodes 2 --output artifacts\report.json
-& $racePython -m race_trainer watch --model runs\my-run\best.pt --track s_track
+.\race evaluate --model runs\my-run\best.pt --tracks oval square random:12345
+.\race evaluate --model runs\my-run\best.pt --generated 200 --episodes 2 --output artifacts\report.json
+.\race watch --model runs\my-run\best.pt --track s_track
 ```
 
 ## Tracks
@@ -87,9 +94,9 @@ layout: a circuit or a point-to-point sprint with its own width, corners, and di
 | `oval`, `s_track`, `square` | Hand-built layouts, held out of default training |
 
 ```powershell
-& $racePython -m race_trainer tracks
-& $racePython -m race_trainer render --track random:7 --output artifacts\track.png
-& $racePython -m race_trainer manual --track random:2000000003
+.\race tracks
+.\race render --track random:7 --output artifacts\track.png
+.\race manual --track random:2000000003
 ```
 
 To train on specific tracks instead, name them: `--tracks oval square`, or mix them with
@@ -100,7 +107,7 @@ the pool: `--tracks random oval`. `evaluate` marks any track the model trained o
 Inspect the configuration without constructing an agent or starting a run:
 
 ```powershell
-& $racePython -m race_trainer train --dry-run
+.\race train --dry-run
 ```
 
 | Flag | Default | Meaning |
@@ -133,7 +140,7 @@ Use **Stop & save**, close the training monitor, or press Ctrl+C in a training t
 save `latest.pt`. A `stop.request` file in the run directory does the same.
 
 ```powershell
-& $racePython -m race_trainer train --resume runs\my-run\latest.pt --steps 2000000 --output runs\my-run-2
+.\race train --resume runs\my-run\latest.pt --steps 2000000 --output runs\my-run-2
 ```
 
 `--steps` is the total target, including completed steps. Resume preserves seed, tracks,
@@ -153,8 +160,8 @@ observation/action versions. Cars restart on resume; their earlier experience st
 fastest for this small network. The simulator always runs on the CPU.
 
 ```powershell
-& $racePython -m race_trainer benchmark
-& $racePython -m race_trainer doctor
+.\race benchmark
+.\race doctor
 ```
 
 `benchmark` takes under a minute. It measures the simulator alone, the learner alone on
@@ -164,7 +171,7 @@ each device, and then the real training loop on each device, and names the faste
 ## Drive it yourself
 
 ```powershell
-& $racePython -m race_trainer manual --track s_track
+.\race manual --track s_track
 ```
 
 | Control | Action |
@@ -212,6 +219,7 @@ menu; training scripts without arguments print help. `watch_model.py` and
 ## Development
 
 ```powershell
+$racePython = Join-Path $env:LOCALAPPDATA 'RaceTrainer\venv\Scripts\python.exe'
 & $racePython -m pytest -q
 & $racePython -m ruff check .
 & $racePython -m ruff format --check .

@@ -241,6 +241,19 @@ def _evaluate(args, policy, payload, choice):
         print(f"Full report: {args.output.resolve()}")
 
 
+def _require_model(path):
+    """Fail early on a missing model and point at the checkpoints that do exist."""
+    if path.is_file():
+        return
+    found = sorted(Path("runs").glob("*/best.pt"))
+    hint = (
+        "Models found: " + ", ".join(str(p) for p in found)
+        if found
+        else "No runs\\*\\best.pt found; train one first with: train --output runs\\my-run"
+    )
+    raise FileNotFoundError(f"Model not found: {path}. {hint}")
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
@@ -289,6 +302,7 @@ def main(argv=None):
             from .checkpoint import load_policy
             from .device import choose_device
 
+            _require_model(args.model)
             choice = choose_device(args.device)
             policy, payload = load_policy(args.model, choice.name)
             if args.command == "watch":
