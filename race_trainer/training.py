@@ -3,6 +3,7 @@
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -38,8 +39,9 @@ def _describe(event):
         loss = "warm-up" if event["loss"] is None else f"{event['loss']:.4f}"
         return (
             f"[{event['steps'] / event['total']:6.1%}] {event['steps']:>10,} steps | "
-            f"finish {event['completion_rate']:4.0%}  crash {event['crash_rate']:4.0%}  "
-            f"progress {event['mean_progress']:4.0%} | explore {event['epsilon']:5.1%}  "
+            f"while exploring: finish {event['completion_rate']:4.0%}  "
+            f"crash {event['crash_rate']:4.0%}  track {event['mean_progress']:4.0%} | "
+            f"explore {event['epsilon']:5.1%}  "
             f"loss {loss} | {event['steps_per_second']:,.0f} steps/s  "
             f"ETA {event['eta_seconds'] / 60:.1f} min"
         )
@@ -72,7 +74,7 @@ def run_training(
     agent_cfg = agent_config or AgentConfig()
     device = choose_device(cfg.device)
     torch.set_num_threads(cfg.cpu_threads or default_cpu_threads(device.name))
-    best_score = (-float("inf"),) * 3
+    best_score = (-float("inf"),) * 2
     payload = load_checkpoint(resume) if resume else None
     if payload:
         prior = asdict(TrainConfig(**payload["train_config"]))
@@ -89,7 +91,7 @@ def run_training(
             raise ValueError("Resume must preserve the saved agent configuration")
         if payload["completed_steps"] >= cfg.total_steps:
             raise ValueError("--steps is a total target; choose a value above the completed count")
-        best_score = tuple(payload["best_score"])
+        best_score = tuple(payload["best_score"])[:2]
     directory = (
         Path(output) if output else Path("runs") / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     )
@@ -116,7 +118,13 @@ def run_training(
         if device.name == "cuda" and payload["cuda_rng"]:
             torch.cuda.set_rng_state(payload["cuda_rng"][0])
     specs = cfg.training_specs()
-    env = VectorRaceEnv(env_cfg, specs, cfg.num_envs, seed=[cfg.seed, agent.env_steps])
+    env = VectorRaceEnv(
+        env_cfg,
+        specs,
+        cfg.num_envs,
+        seed=[cfg.seed, agent.env_steps],
+        steering_noise=cfg.steering_noise,
+    )
     stop_file = directory / "stop.request"
     started = time.monotonic()
     first_step = agent.env_steps
@@ -129,14 +137,33 @@ def run_training(
         stream.flush()
         print(encoded if json_events else _describe(event), flush=True)
 
+    # Each update runs on a worker thread while the simulator computes the next step.
+    # Batches are drawn here and the driving copy is refreshed only between updates, so
+    # the result does not depend on thread timing.
+    worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="learner")
+    pending, losses = None, []
+
+    def apply_updates(batches):
+        return [agent.apply_update(batch) for batch in batches]
+
+    def collect_updates():
+        nonlocal pending
+        if pending is not None:
+            running, pending = pending, None
+            losses.extend(running.result())
+            agent.sync_actor(only_if_stale=True)
+
     def evaluate_and_save():
         nonlocal best_score
+        collect_updates()
         # Score exactly the weights that would be saved, not a slightly older driving copy.
         agent.sync_actor()
         report = evaluate_policy(agent, env_cfg, cfg.eval_tracks, cfg.eval_episodes, cfg.seed)
         emit({"event": "evaluation", "steps": agent.env_steps, **report}, evaluations)
         score = ranking(report)
-        if score > best_score:
+        # Many checkpoints tie on a small validation set. The newest of the leaders
+        # is kept: it has trained longest and at the lowest learning rate.
+        if score >= best_score:
             best_score = score
             save_checkpoint(directory / "best.pt", agent, env_cfg, cfg, best_score)
             emit(
@@ -164,7 +191,7 @@ def run_training(
             }
         )
         observations = env.reset()
-        finished, losses = [], []
+        finished = []
         window_start, window_steps = time.monotonic(), agent.env_steps
         iteration = 0
         while agent.env_steps < cfg.total_steps:
@@ -183,10 +210,14 @@ def run_training(
             observations = following
             if episodes is not None:
                 finished.append(episodes)
-            for _ in range(agent.updates_due()):
-                losses.append(agent.learn())
+            collect_updates()
+            agent.set_progress(agent.env_steps / cfg.total_steps)
+            batches = [agent.sample_batch() for _ in range(agent.updates_due())]
+            if batches:
+                pending = worker.submit(apply_updates, batches)
             done = agent.env_steps >= cfg.total_steps
             if before // cfg.log_every != agent.env_steps // cfg.log_every or done:
+                collect_updates()
                 now = time.monotonic()
                 rate = (agent.env_steps - window_steps) / max(now - window_start, 1e-9)
                 merged = {
@@ -213,7 +244,8 @@ def run_training(
                         "wall_seconds": now - started,
                     }
                 )
-                finished, losses = [], []
+                finished = []
+                losses.clear()
                 window_start, window_steps = now, agent.env_steps
             if before // cfg.eval_every != agent.env_steps // cfg.eval_every or done:
                 paused = time.monotonic()
@@ -221,8 +253,10 @@ def run_training(
                 window_start += time.monotonic() - paused
     except (KeyboardInterrupt, TrainingStopped):
         stopped = True
+        collect_updates()
         save_checkpoint(directory / "latest.pt", agent, env_cfg, cfg, best_score)
     finally:
+        worker.shutdown(wait=True)
         result = {
             "event": "stopped" if stopped else "finished",
             "steps": agent.env_steps,

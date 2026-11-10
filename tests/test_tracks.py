@@ -59,6 +59,10 @@ def test_track_names_and_held_out_seed_ranges():
     assert validation[0] == f"random:{VALIDATION_SEED_BASE}"
     assert heldout[:3] == TRACK_NAMES and heldout[3] == f"random:{TEST_SEED_BASE}"
     assert not set(validation) & set(heldout) and len(heldout) == 23
+    labels = [make_track(name).label for name in ("oval", "random:3", validation[1], heldout[5])]
+    assert labels[0] == "Oval circuit" and labels[1].startswith("Generated ")
+    assert labels[2].startswith("Validation ") and labels[2].endswith(" 1")
+    assert labels[3].startswith("Test ") and labels[3].endswith(" 2")
 
 
 @pytest.mark.parametrize("name", SAMPLED)

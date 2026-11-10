@@ -124,12 +124,13 @@ class RaceCarEnv(gym.Env):
 class VectorRaceEnv:
     """Many cars for headless training. A finished car restarts on a freshly drawn track."""
 
-    def __init__(self, config, tracks, count, seed=0, *, random_position=True):
+    def __init__(self, config, tracks, count, seed=0, *, random_position=True, steering_noise=0.0):
         self.config, self.count = config, count
         self.track_names = tuple(tracks)
         if not self.track_names:
             raise ValueError("Training needs at least one track")
         self.random_position = random_position
+        self.steering_noise = steering_noise
         self.rng = np.random.default_rng(seed)
         self.sim = RaceSim(config, count)
 
@@ -150,6 +151,12 @@ class VectorRaceEnv:
         ``episodes`` summarizes the cars that just ended, or is None.
         """
         sim = self.sim
+        if self.steering_noise:
+            # Imprecise steering in training teaches the policy to leave a margin:
+            # a line that only works when executed perfectly stops paying off.
+            wobble = self.rng.normal(0.0, self.steering_noise, self.count)
+            actions = np.array(actions, dtype=np.float64)
+            actions[:, 1] = np.clip(actions[:, 1] + wobble, -1, 1)
         rewards, terminated, truncated = sim.step(actions)
         successors = sim.observe()
         ended = np.flatnonzero(terminated | truncated)

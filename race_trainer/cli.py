@@ -21,7 +21,7 @@ from .config import (
 DEFAULT_WATCH_TRACK = f"random:{TEST_SEED_BASE}"
 TRAIN_FLAGS = {
     "training": ("total_steps", "num_envs", "track_pool", "seed", "eval_every", "eval_episodes")
-    + ("log_every", "device", "cpu_threads"),
+    + ("log_every", "steering_noise", "device", "cpu_threads"),
     "environment": ("max_steps",),
     "agent": ("batch_size", "learning_rate", "learning_starts", "exploration_steps"),
 }
@@ -50,7 +50,7 @@ def parser():
     sub.add_parser("doctor", help="Read runtime and GPU metadata without a benchmark")
     sub.add_parser("tracks", help="List the built-in layouts and the generated-track seed ranges")
     benchmark = sub.add_parser(
-        "benchmark", help="Measure simulator and learner speed here (about 15 seconds)"
+        "benchmark", help="Measure simulator, learner, and training speed here (under a minute)"
     )
     benchmark.add_argument("--seconds", type=float, default=1.0, help="Time per measurement")
     manual = sub.add_parser("manual", help="Drive with keyboard controls")
@@ -110,6 +110,11 @@ def parser():
     train.add_argument("--seed", type=int)
     train.add_argument("--cpu-threads", type=int, help="PyTorch CPU threads; 0 picks a default")
     train.add_argument("--max-steps", type=int, help="Time limit of one episode, in steps")
+    train.add_argument(
+        "--steering-noise",
+        type=float,
+        help="Random steering error while training, as a fraction of full lock; 0 disables",
+    )
     train.add_argument("--batch-size", type=int)
     train.add_argument("--learning-rate", type=float)
     train.add_argument("--learning-starts", type=int)
@@ -200,12 +205,13 @@ def _evaluate(args, policy, payload, choice):
         print(json.dumps({"device": choice.name, **shown}, indent=2, allow_nan=False))
         return
 
-    def row(label, seen, metrics):
+    def row(label, seen, metrics, digits=0):
         seconds = metrics["mean_finish_seconds"]
         time = "     -" if seconds is None else f"{seconds:5.1f}s"
         return (
-            f"{label:24} {seen:8} {metrics['completion_rate']:6.0%} {metrics['crash_rate']:6.0%} "
-            f"{metrics['mean_progress']:9.0%} {time:>7} {metrics['mean_speed']:6.0f}"
+            f"{label:24} {seen:8} {metrics['completion_rate']:6.{digits}%} "
+            f"{metrics['crash_rate']:6.{digits}%} {metrics['mean_progress']:9.{digits}%} "
+            f"{time:>7} {metrics['mean_speed']:6.0f}"
         )
 
     print(f"Model: {args.model} ({payload['completed_steps']:,} training steps)")
@@ -217,9 +223,20 @@ def _evaluate(args, policy, payload, choice):
         from .evaluation import summarize
 
         label = f"UNSEEN ({len({r['track'] for r in unseen})} tracks)"
-        print(row(label, "no", summarize(unseen)))
+        print(row(label, "no", summarize(unseen), 1))
     if report["seen_in_training"]:
-        print(row("ALL", "mixed", report["summary"]))
+        print(row("ALL", "mixed", report["summary"], 1))
+    # Totals are stated as counts, and every failure is named so it can be watched.
+    failed = [r for r in report["episodes"] if not r["completed"]]
+    total = len(report["episodes"])
+    print(f"Finished {total - len(failed)} of {total} runs.")
+    for record in failed[:10]:
+        print(
+            f"  {record['termination_reason']} at {record['progress']:.0%} of {record['track']}: "
+            f"watch --track {record['track']} --seed {record['seed']}"
+        )
+    if len(failed) > 10:
+        print(f"  ... and {len(failed) - 10} more in the full report")
     if args.output:
         print(f"Full report: {args.output.resolve()}")
 

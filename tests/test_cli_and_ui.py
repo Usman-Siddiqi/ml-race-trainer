@@ -107,7 +107,9 @@ def test_menu_setup_and_navigation_never_launch_a_process(monkeypatch):
         for _ in range(3):
             app.click("track")
         # Beyond the built-in layouts the menu offers generated ones that are never trained on.
-        assert app.track_name == f"random:{TEST_SEED_BASE + 1}" and "Generated" in app.track_label
+        assert app.track_name == f"random:{TEST_SEED_BASE + 1}" and app.track_label.startswith(
+            "Test "
+        )
         app.draw()
         app.click("setup")
         app.click("device")

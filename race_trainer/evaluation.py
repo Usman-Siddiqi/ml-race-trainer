@@ -63,5 +63,7 @@ def summarize(records):
 
 
 def ranking(report):
+    """Finishing comes first, then distance covered. Pace is deliberately not ranked:
+    it favours early, aggressive policies that crash more on tracks outside this set."""
     metrics = report["summary"]
-    return (metrics["completion_rate"], metrics["mean_progress"], metrics["mean_reward"])
+    return (metrics["completion_rate"], metrics["mean_progress"])

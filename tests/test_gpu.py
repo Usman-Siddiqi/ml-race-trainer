@@ -244,7 +244,7 @@ def test_desktop_monitor_runs_a_real_bounded_cuda_child(tmp_path, monkeypatch):
     monkeypatch.setattr("race_trainer.app.subprocess.Popen", bounded_child)
     app = RaceApp()
     try:
-        app.steps, app.device_index = 400, 2
+        app.steps, app.device_index = 400, app.devices.index("cuda")
         app.click("setup")
         app.click("start")
         deadline = time.monotonic() + 60
@@ -273,4 +273,29 @@ def test_benchmark_measures_simulator_and_both_learners(capsys):
     assert main(["benchmark", "--seconds", "0.2"]) == 0
     output = capsys.readouterr().out
     assert "64 cars" in output and "cuda batch  2048" in output and "cpu  batch  2048" in output
-    assert "Suggested: --device" in output
+    assert "Fastest here: --device" in output and "--device cuda" in output
+
+
+def test_cuda_training_is_repeatable_with_the_concurrent_learner(tmp_path):
+    config = TrainConfig(
+        total_steps=800,
+        num_envs=4,
+        track_pool=4,
+        eval_tracks=("oval",),
+        eval_every=10**6,
+        log_every=400,
+        device="cuda",
+    )
+    agent_config = AgentConfig(
+        batch_size=16, replay_capacity=4000, learning_starts=64, train_every=8
+    )
+    runs = []
+    for name in ("first", "second"):
+        run_training(config, EnvConfig(max_steps=40), agent_config, output=tmp_path / name)
+        runs.append(load_checkpoint(tmp_path / name / "latest.pt")["agent"])
+    assert runs[0]["updates"] == runs[1]["updates"] == (800 - 64) // 8
+    # Updates run on a worker thread, yet nothing depends on its timing.
+    for key, value in runs[0]["online"].items():
+        torch.testing.assert_close(value, runs[1]["online"][key], rtol=0, atol=0)
+    for key in ("states", "actions", "rewards", "ended"):
+        assert torch.equal(runs[0]["replay"][key], runs[1]["replay"][key])

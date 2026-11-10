@@ -42,7 +42,7 @@ class RaceApp:
         self.clock = pygame.time.Clock()
         self.track_index = 0
         self.device_index = 0
-        self.devices = ("cpu", "auto", "cuda")
+        self.devices = ("auto", "cuda", "cpu")
         self.steps = TrainConfig().total_steps
         self.mode = "menu"
         self.running = True

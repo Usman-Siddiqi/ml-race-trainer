@@ -83,7 +83,7 @@ def test_inference_is_repeatable_without_gradients_or_weight_changes():
     observation = np.linspace(0, 1, OBSERVATION_SIZE, dtype=np.float32)
     before = {k: v.clone() for k, v in first.online.state_dict().items()}
     grad_flags = []
-    handle = first.online.register_forward_hook(
+    handle = first.actor.register_forward_hook(
         lambda *args: grad_flags.append(torch.is_grad_enabled())
     )
     assert first.act(observation) == second.act(observation)
@@ -93,7 +93,12 @@ def test_inference_is_repeatable_without_gradients_or_weight_changes():
     handle.remove()
     for key, value in first.online.state_dict().items():
         torch.testing.assert_close(value, before[key])
-    assert first.updates == 0 and first.actor is None
+    assert first.updates == 0
+    # The cars are driven by a separate copy that starts equal to the learner.
+    for key, value in first.online.state_dict().items():
+        torch.testing.assert_close(first.actor.state_dict()[key], value)
+        assert first.actor.state_dict()[key] is not value
+    assert not any(p.requires_grad for p in first.actor.parameters())
     assert not any(p.requires_grad for p in first.target.parameters())
 
 
@@ -185,3 +190,13 @@ def test_update_schedule_counts_environment_steps():
     for step in range(10):
         assert agent.updates_due() == max(0, (2 * step - 8) // 4)
         agent.observe(state(0, 2), [0, 0], [0, 0], state(0, 2), [False] * 2, [False] * 2)
+
+
+def test_learning_rate_anneals_linearly_with_training_progress():
+    config = small_config(learning_rate=0.001, final_learning_rate=0.0001)
+    agent = DQNAgent(config)
+    rates = [agent.set_progress(fraction) for fraction in (-1, 0, 0.5, 1, 7)]
+    assert rates == pytest.approx([0.001, 0.001, 0.00055, 0.0001, 0.0001])
+    assert agent.optimizer.param_groups[0]["lr"] == pytest.approx(0.0001)
+    with pytest.raises(ValueError, match="final_learning_rate"):
+        small_config(learning_rate=0.001, final_learning_rate=0.002)

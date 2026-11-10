@@ -150,6 +150,8 @@ def test_cli_trains_evaluates_on_unseen_tracks_and_reports_what_was_seen(tmp_pat
     assert cli.main([*evaluate, "--output", str(report)]) == 0
     table = capsys.readouterr().out
     assert "UNSEEN (4 tracks)" in table and "random:2000000001" in table
+    # Totals are counts and each failure names the command that replays it.
+    assert "Finished 0 of 5 runs." in table and "watch --track oval --seed 100000" in table
     saved = json.loads(report.read_text(encoding="utf-8"))
     assert saved["seen_in_training"] == ["oval"] and saved["summary"]["episodes"] == 5
     assert cli.main([*evaluate, "--tracks", "random:0", "random:9", "--json"]) == 0
@@ -168,3 +170,23 @@ def test_simulator_benchmark_is_bounded_and_rejects_long_runs(capsys):
     assert cli.main(["benchmark", "--seconds", "0"]) == 2
     assert cli.main(["benchmark", "--seconds", "60"]) == 2
     assert "between 0 and 10" in capsys.readouterr().err
+
+
+def test_training_steering_noise_perturbs_what_the_car_does_not_what_it_chose():
+    names = ("random:0", "random:1")
+    quiet = VectorRaceEnv(EnvConfig(), names, 8, seed=5)
+    noisy = VectorRaceEnv(EnvConfig(), names, 8, seed=5, steering_noise=0.2)
+    np.testing.assert_array_equal(quiet.reset(), noisy.reset())
+    chosen = np.tile(ACTIONS[2], (8, 1))
+    for _ in range(5):
+        quiet_observations, *_ = quiet.step(chosen)
+        noisy_observations, *_ = noisy.step(chosen)
+    # The chosen action is untouched; the executed steering, which the car senses on the
+    # next step, differs from car to car.
+    np.testing.assert_array_equal(chosen, np.tile(ACTIONS[2], (8, 1)))
+    assert (quiet_observations[:, 16] == 0).all()
+    executed = noisy_observations[:, 16]
+    assert len(np.unique(executed)) == 8 and 0.05 < np.abs(executed).mean() < 0.5
+    assert (np.abs(executed) <= 1).all() and (noisy_observations[:, 17] == 1).all()
+    with pytest.raises(ValueError, match="steering_noise"):
+        TrainConfig(steering_noise=1.5)

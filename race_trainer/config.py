@@ -122,6 +122,7 @@ class EnvConfig:
 class AgentConfig:
     hidden_size: int = 256
     learning_rate: float = 0.0003
+    final_learning_rate: float = 0.00003
     gamma: float = 0.99
     n_step: int = 3
     batch_size: int = 2048
@@ -140,6 +141,7 @@ class AgentConfig:
     def __post_init__(self):
         for key in (
             "learning_rate",
+            "final_learning_rate",
             "gamma",
             "epsilon_start",
             "epsilon_end",
@@ -170,6 +172,8 @@ class AgentConfig:
             raise ValueError("epsilon_spread must be >= 1 and keep every epsilon within 0..1")
         if not 0 <= self.gamma <= 1 or self.learning_rate <= 0 or self.gradient_clip <= 0:
             raise ValueError("Invalid optimizer parameters")
+        if not 0 < self.final_learning_rate <= self.learning_rate:
+            raise ValueError("final_learning_rate must be positive and at most learning_rate")
 
 
 @dataclass(frozen=True)
@@ -183,6 +187,7 @@ class TrainConfig:
     eval_every: int = 100_000
     eval_episodes: int = 1
     log_every: int = 20_000
+    steering_noise: float = 0.2
     device: str = "auto"
     cpu_threads: int = 0
 
@@ -207,6 +212,8 @@ class TrainConfig:
                 raise ValueError(f"{key} must be positive")
         if self.track_pool > VALIDATION_SEED_BASE:
             raise ValueError("track_pool would overlap the held-out validation seeds")
+        if not 0 <= self.steering_noise <= 1:
+            raise ValueError("steering_noise must be between 0 and 1")
         if self.seed < 0 or self.cpu_threads < 0:
             raise ValueError("seed and cpu_threads must be nonnegative (0 threads = automatic)")
         if self.device not in ("auto", "cpu", "cuda"):

@@ -9,7 +9,13 @@ from functools import lru_cache
 
 import numpy as np
 
-from .config import TRACK_NAMES, check_track, track_seed
+from .config import (
+    TEST_SEED_BASE,
+    TRACK_NAMES,
+    VALIDATION_SEED_BASE,
+    check_track,
+    track_seed,
+)
 
 CANVAS = (800.0, 600.0)
 GENERATOR_VERSION = 1
@@ -165,7 +171,13 @@ class Track:
                 "s_track": "S-curve sprint",
                 "square": "Rounded square",
             }[self.name]
-        return f"Generated {'circuit' if self.closed else 'sprint'} {seed}"
+        # The seed range says what a generated layout is for; show that, not ten digits.
+        kind = "circuit" if self.closed else "sprint"
+        if seed >= TEST_SEED_BASE:
+            return f"Test {kind} {seed - TEST_SEED_BASE}"
+        if seed >= VALIDATION_SEED_BASE:
+            return f"Validation {kind} {seed - VALIDATION_SEED_BASE}"
+        return f"Generated {kind} {seed}"
 
     def sample(self, distance):
         distance = distance % self.length if self.closed else np.clip(distance, 0, self.length)

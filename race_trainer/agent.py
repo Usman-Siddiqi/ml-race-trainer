@@ -153,16 +153,18 @@ class DQNAgent:
             self.target = DQN(self.config.hidden_size).to(self.device)
         self.target.load_state_dict(self.online.state_dict())
         self.target.requires_grad_(False).eval()
+        self.env_steps = self.updates = 0
         on_gpu = self.device.type == "cuda"
         self.optimizer = torch.optim.Adam(
             self.online.parameters(), lr=self.config.learning_rate, fused=on_gpu
         )
-        # Choosing actions for a few dozen cars is faster on the CPU than a GPU round
-        # trip, so a CUDA learner keeps a CPU copy of the network for driving.
-        self.actor = DQN(self.config.hidden_size).requires_grad_(False).eval() if on_gpu else None
+        # The cars are driven by a CPU copy of the network. Choosing actions for a few
+        # dozen cars is faster there than a GPU round trip, and a separate copy lets an
+        # update run on another thread while the simulator advances.
+        self.actor = DQN(self.config.hidden_size).requires_grad_(False).eval()
         self._actor_updates = None
+        self.sync_actor()
         self.replay = ReplayBuffer(self.config.replay_capacity, num_envs)
-        self.env_steps = self.updates = 0
         # Each environment explores at its own final rate, from careful to adventurous.
         spread = np.linspace(0, 1, num_envs) if num_envs > 1 else np.zeros(1)
         self.epsilon_floors = self.config.epsilon_end * self.config.epsilon_spread**spread
@@ -179,23 +181,17 @@ class DQNAgent:
     def epsilon(self):
         return float(self.epsilons.mean())
 
-    def sync_actor(self):
-        """Copy the latest weights to the CPU driving network (a no-op on a CPU learner)."""
-        if self.actor is not None and self._actor_updates != self.updates:
-            self.actor.load_state_dict({k: v.cpu() for k, v in self.online.state_dict().items()})
+    def sync_actor(self, *, only_if_stale=False):
+        """Copy the learner's weights to the driving network. Never call during an update."""
+        age = None if self._actor_updates is None else self.updates - self._actor_updates
+        if age is None or age >= (self.config.actor_sync_every if only_if_stale else 1):
+            weights = {k: v.detach().cpu() for k, v in self.online.state_dict().items()}
+            self.actor.load_state_dict(weights)
             self._actor_updates = self.updates
 
     @torch.inference_mode()
     def greedy(self, states):
-        network = self.online
-        if self.actor is not None:
-            stale = self._actor_updates is None or (
-                self.updates - self._actor_updates >= self.config.actor_sync_every
-            )
-            if stale:
-                self.sync_actor()
-            network = self.actor
-        return network(torch.as_tensor(states, dtype=torch.float32)).argmax(dim=1).numpy()
+        return self.actor(torch.as_tensor(states, dtype=torch.float32)).argmax(dim=1).numpy()
 
     def act(self, state, *, explore=False):
         """Greedy action for one observation; exploration needs the batched form."""
@@ -224,6 +220,15 @@ class DQNAgent:
         self.replay.push(states, actions, rewards, next_states, terminated, ended)
         self.env_steps += self.num_envs
 
+    def set_progress(self, fraction):
+        """Anneal the learning rate linearly over the run; ``fraction`` is steps / total."""
+        cfg = self.config
+        fraction = min(1.0, max(0.0, fraction))
+        rate = cfg.learning_rate + fraction * (cfg.final_learning_rate - cfg.learning_rate)
+        for group in self.optimizer.param_groups:
+            group["lr"] = rate
+        return rate
+
     def updates_due(self):
         cfg = self.config
         if self.env_steps < cfg.learning_starts or len(self.replay) < cfg.batch_size:
@@ -231,6 +236,13 @@ class DQNAgent:
         return max(0, (self.env_steps - cfg.learning_starts) // cfg.train_every - self.updates)
 
     def learn(self):
+        """Sample and apply one update, then refresh the driving copy when it is stale."""
+        loss = self.apply_update(self.sample_batch())
+        self.sync_actor(only_if_stale=True)
+        return loss
+
+    def sample_batch(self):
+        """Draw one minibatch from replay as a single packed CPU array."""
         cfg = self.config
         states, actions, returns, next_states, terminated, discount = self.replay.sample(
             cfg.batch_size, self.rng, cfg.n_step, cfg.gamma
@@ -242,6 +254,13 @@ class DQNAgent:
         packed[:, :size], packed[:, size : 2 * size] = states, next_states
         packed[:, -4], packed[:, -3] = returns, discount
         packed[:, -2], packed[:, -1] = terminated, actions
+        return packed
+
+    def apply_update(self, packed):
+        """One optimizer step on a packed minibatch. Touches only learner-side state, so
+        it may run on a worker thread while the main thread drives the cars."""
+        cfg = self.config
+        size = OBSERVATION_SIZE
         batch = torch.from_numpy(packed).to(self.device)
         values = self.online(batch[:, : 2 * size].reshape(-1, size)).view(cfg.batch_size, 2, -1)
         with torch.no_grad():
@@ -292,3 +311,4 @@ class DQNAgent:
         self.rng.bit_generator.state = state["rng"]
         self.env_steps, self.updates = state["env_steps"], state["updates"]
         self._actor_updates = None
+        self.sync_actor()
