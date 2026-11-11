@@ -127,6 +127,18 @@ Test stop requests issued before the run directory exists, close-while-busy beha
 process failures, and completion events. Update the monitor when changing event fields.
 Offscreen tests use dummy SDL; real interactive driving needs a normal display.
 
+The README GIFs in `docs/media` come from `tools/readme_gifs.py`, which drives a saved
+model through the same simulator and renderer offscreen. It needs Pillow, which is not a
+project dependency; install it to a separate folder rather than into the environment:
+
+```powershell
+uv pip install --target $env:TEMP\race-pillow --python $racePython pillow
+$env:PYTHONPATH = "$env:TEMP\race-pillow"
+& $racePython tools\readme_gifs.py --model runs\v3-default\best.pt
+```
+
+Regenerate them after visible changes to rendering or a new default model.
+
 ## Make it faster
 
 Run `benchmark` first; it measures the simulator alone, the learner alone, and both

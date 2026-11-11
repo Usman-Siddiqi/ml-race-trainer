@@ -4,6 +4,11 @@ A racing and reinforcement-learning lab. Cars learn to drive from their own sens
 headlessly on generated tracks, and are then tested on tracks they have never seen.
 You can also drive by hand and watch any trained model on any track.
 
+![A trained car lapping a test circuit it never trained on, with its sensor rays shown](docs/media/replay.gif)
+
+*A trained model (`runs\v3-default`, one million steps) on a test circuit it never saw in
+training. The faint lines are its 15 wall-distance sensors, which are all it can see.*
+
 Version 3 changed what the car sees and how it trains:
 
 - **Sensors only.** The policy reads 15 wall-distance rays, its speed, and its previous
@@ -64,6 +69,11 @@ same `pygame` import. Pip fallback files are provided, but uv uses the full depe
 
 `runs\my-run` exists only after step 1. If a model path is wrong, `watch` and `evaluate`
 list the `runs\*\best.pt` files that do exist.
+
+![One trained model driving four tracks it never trained on at the same time](docs/media/unseen-tracks.gif)
+
+*The same model on three generated test tracks and the hand-built S-curve, none of which
+it trained on. All four finish.*
 
 `train` prints a progress line every 20,000 steps and scores the model on 16 unseen
 validation tracks every 100,000 steps. The weights that finish the most of them are kept
@@ -192,6 +202,11 @@ braking. Gates count only in sequence and in the correct direction. A sprint's f
 sits a braking distance before the end of the road. Speed is in simulation units per second.
 
 ## What the model is
+
+![Twelve cars driven by one policy on a test circuit](docs/media/many-cars.gif)
+
+*Twelve cars share one policy, started at random points as in training. Cars do not
+collide with each other; each one reacts only to its own sensors.*
 
 - **Inputs (18):** 15 rays from -90 to +90 degrees, denser toward the front; speed; previous
   steering; previous throttle.
